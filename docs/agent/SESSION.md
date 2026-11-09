@@ -4,13 +4,16 @@
 
 Сделано:
 - Скачаны 37 JS-бандлов scrolller.com → `tmp/scrolller-js/` (вне репо, не коммитится).
-- Подтверждён эндпоинт `https://api.scrolller.com/api/v2/graphql`; собран список имен GraphQL-операций.
-- Каркас репо: git init (main), workspaces core/cli/mcp, python/, CI, docs/agent, LICENSE MIT.
+- **Реальный эндпоинт подтверждён живьём**: POST https://api.scrolller.com/admin, тело {query, variables, authorization}; /api/v2/graphql из бандла — 404 (ложный след).
+- NsfwFilter = SFW|NSFW|ALL подтверждён; пагинация iterator работает; интроспекция закрыта (Apollo).
+- docs/api/RESEARCH.md (проверенные факты) + docs/api/CONTRACT.md (канон; §1–5,7 готовы, матрица операций provisional).
+- Каркас + CLI-баннер (ANSI-градиент) + `scrolller donate` с кошельками. Коммиты: 619324c, 543be06, 5b2e816, 045a3e2.
 
-Активно:
-- Explore-агент: полный реверс бандлов (T1).
-- Root: каркас (T2), затем контракт (T3) и раскраска задач инженерам.
+Активно (субагенты):
+- Explore (T1): SDL-каталог всех операций + auth-флоу (получил от Root приоритезацию).
+- Engineer 1 (T4-ф1): TS core транспорт — УПАЛ от concurrency limit, возобновить при свободном слоте (SendMessage, task T4-phase1).
+- Engineer 3 (T7-ф1): Python транспорт — работает.
 
-Дальше: T3 → Engineer 1 (core, T4) → Engineer 2 (CLI T5, MCP T6) ∥ Engineer 3 (Python T7) → QA (T9) → Reviewer → README/публикация (T8).
+Дальше: T1 → фаза 2 (операции) в core/python ∥ Engineer 2 (CLI-команды T5, MCP T6) → QA (T9) → README EN+RU (T8) → публикация.
 
-Ограничения: auth-операции без реального аккаунта не верифицируются.
+Ограничения: auth-операции без реального аккаунта не верифицируются; concurrency субагентов ограничен — не держать >2 фоновых агентов.
