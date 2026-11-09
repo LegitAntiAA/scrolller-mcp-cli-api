@@ -46,16 +46,25 @@ ProgressCallback = Callable[[DownloadProgress], None]
 
 
 def _as_source(value: Any) -> Optional[Dict[str, Any]]:
-    """Normalize a media source entry; scalar URLs become ``{"url": ...}``."""
-    if isinstance(value, str) and value:
+    """Normalize a media source entry; scalar URLs become ``{"url": ...}``.
+
+    The literal string ``"undefined"`` (backend artifact, RESEARCH.md §4) is
+    treated as absent so callers fall back to other sources.
+    """
+    if isinstance(value, str) and value and value != "undefined":
         return {"url": value}
-    if isinstance(value, dict) and value.get("url"):
+    if isinstance(value, dict) and value.get("url") and value.get("url") != "undefined":
         return value
     return None
 
 
 def best_media_source(post: Dict[str, Any]) -> Dict[str, Any]:
-    """Pick the download source for a post (CONTRACT.md §7)."""
+    """Pick the download source for a post (CONTRACT.md §7).
+
+    Videos prefer ``fullLengthSource`` (the literal string ``"undefined"`` is
+    ignored); otherwise the largest ``mediaSources`` entry by area — which
+    per RESEARCH.md §4 includes MP4/WEBM video entries directly.
+    """
     source = _as_source(post.get("fullLengthSource"))
     if source is not None:
         return source

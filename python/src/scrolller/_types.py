@@ -37,6 +37,7 @@ class ErrorKind(str, enum.Enum):
     """Normalized error kinds (CONTRACT.md §5)."""
 
     AUTH_REQUIRED = "AUTH_REQUIRED"
+    INVALID_CREDENTIALS = "INVALID_CREDENTIALS"
     INVALID_TOKEN = "INVALID_TOKEN"
     GRAPHQL_ERROR = "GRAPHQL_ERROR"
     RATE_LIMITED = "RATE_LIMITED"

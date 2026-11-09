@@ -42,17 +42,20 @@ def test_deep_merge_non_dict_replaces_dict():
 
 
 def test_default_path_windows(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "nt")
     monkeypatch.setenv("USERPROFILE", str(tmp_path))
-    assert default_config_path() == tmp_path / ".config" / "scrolller" / "config.json"
+    assert default_config_path(is_windows=True) == tmp_path / ".config" / "scrolller" / "config.json"
+
+
+def test_default_path_windows_falls_back_to_home(monkeypatch, tmp_path):
+    monkeypatch.delenv("USERPROFILE", raising=False)
+    assert default_config_path(is_windows=True) == Path.home() / ".config" / "scrolller" / "config.json"
 
 
 def test_default_path_xdg(monkeypatch, tmp_path):
-    monkeypatch.setattr(os, "name", "posix")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    assert default_config_path() == tmp_path / "xdg" / "scrolller" / "config.json"
+    assert default_config_path(is_windows=False) == tmp_path / "xdg" / "scrolller" / "config.json"
     monkeypatch.delenv("XDG_CONFIG_HOME")
-    assert default_config_path() == Path.home() / ".config" / "scrolller" / "config.json"
+    assert default_config_path(is_windows=False) == Path.home() / ".config" / "scrolller" / "config.json"
 
 
 # ------------------------------------------------------------- file load/save

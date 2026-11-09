@@ -40,9 +40,14 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
-def default_config_path() -> Path:
-    """Config file location per CONTRACT.md §3."""
-    if os.name == "nt":
+def default_config_path(*, is_windows: Optional[bool] = None) -> Path:
+    """Config file location per CONTRACT.md §3.
+
+    ``is_windows`` overrides the platform check (``os.name == "nt"``) so the
+    Windows/POSIX branches are testable on any host.
+    """
+    windows = (os.name == "nt") if is_windows is None else is_windows
+    if windows:
         profile = os.environ.get("USERPROFILE")
         base = Path(profile) if profile else Path.home()
         return base / ".config" / CONFIG_DIR_NAME / CONFIG_FILE_NAME

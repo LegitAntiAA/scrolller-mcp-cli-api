@@ -106,6 +106,12 @@ Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP 
 | 22 | Download media | `download(post, dir)` | `scrolller download ...` | `download_media` | 🔓 | planned |
 | 23 | Proxy config | `setProxy(cfg)` | `scrolller proxy` (wizard) | `configure_proxy` / `clear_proxy` | — | planned |
 | 24 | Config get/set | `getConfig()`, `updateConfig(patch)` | `scrolller config get/set` | `get_config` / `update_config` | — | planned |
+| 25 | Leaderboard (top collections by likes) [UI-verified] | `leaderboard(opts)` | `scrolller leaderboard` | `get_leaderboard` | 🔓 | planned |
+| 26 | Register account [UI-verified form] | `register(username, email, password)` | `scrolller register` | `register` | 🔓 | provisional (SDL from T1) |
+| 27 | Report post | `report(ref, reason?)` | `scrolller report <url>` | `report_post` | 🔒 | provisional (SDL from T1) |
+| 28 | Related posts ("More like this") | `related(ref)` | `scrolller related <url>` | `get_related` | 🔓 | provisional (SDL from T1) |
+| 29 | Media-type/category filters on feeds [UI-verified] | opts on discover/search: `filter` (photos/videos/videos-with-sound), categories, hidden-content | `--photos --videos --with-sound --category` | same params | 🔓 | planned |
+| 30 | Official agent routes (embed-safe, no raw media) [verified] | `agentSubreddit(slug)`, `agentContent(slug)`, `agentCollection(id)` | `scrolller agent <subreddit\|content\|collection>` | `agent_*` | 🔓 | verified |
 
 > ⚠️ Rows marked *planned* become *confirmed* only after T1 SDL extraction maps them to real server operations; operations the server does not support will be **removed** (not stubbed) and documented in README.
 

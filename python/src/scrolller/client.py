@@ -26,6 +26,14 @@ from scrolller._types import ClientOptions
 __all__ = ["AsyncScrolllerClient", "ScrolllerClient"]
 
 
+def _persist_config_value(options: ClientOptions, key: str, value: Any) -> None:
+    """Write one key back to the config file, preserving the rest of the file."""
+    path = Path(options.config_path or default_config_path())
+    file_cfg = load_config_file(path)
+    file_cfg[key] = value
+    save_config_file(path, file_cfg)
+
+
 class ScrolllerClient:
     """Minimal synchronous Scrolller client (transport foundation)."""
 
@@ -82,8 +90,9 @@ class ScrolllerClient:
         )
 
     def set_token(self, token: Optional[str]) -> None:
-        """Set or clear the auth token for subsequent requests (in memory)."""
+        """Set or clear the auth token; persists to the config file (§6 row 16b)."""
         self._options.token = token
+        _persist_config_value(self._options, "token", token)
 
     def set_proxy(self, proxy: Any) -> None:
         """Replace the active proxy and persist it to the config file.
@@ -94,10 +103,7 @@ class ScrolllerClient:
         config = as_proxy_config(proxy)
         self._options.proxy = config
         self._transport.set_proxy(config)
-        path = Path(self._options.config_path or default_config_path())
-        file_cfg = load_config_file(path)
-        file_cfg["proxy"] = config.to_dict() if config is not None else None
-        save_config_file(path, file_cfg)
+        _persist_config_value(self._options, "proxy", config.to_dict() if config is not None else None)
 
     def download(
         self,
@@ -176,18 +182,16 @@ class AsyncScrolllerClient:
         )
 
     def set_token(self, token: Optional[str]) -> None:
-        """Set or clear the auth token for subsequent requests (in memory)."""
+        """Set or clear the auth token; persists to the config file (§6 row 16b)."""
         self._options.token = token
+        _persist_config_value(self._options, "token", token)
 
     def set_proxy(self, proxy: Any) -> None:
         """Replace the active proxy and persist it to the config file."""
         config = as_proxy_config(proxy)
         self._options.proxy = config
         self._transport.set_proxy(config)
-        path = Path(self._options.config_path or default_config_path())
-        file_cfg = load_config_file(path)
-        file_cfg["proxy"] = config.to_dict() if config is not None else None
-        save_config_file(path, file_cfg)
+        _persist_config_value(self._options, "proxy", config.to_dict() if config is not None else None)
 
     async def download(
         self,

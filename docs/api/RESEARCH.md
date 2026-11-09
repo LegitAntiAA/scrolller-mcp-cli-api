@@ -126,6 +126,32 @@ query LoginQuery($username: String!, $password: String!) {
 - Wrong credentials → HTTP 200 with `errors[0].message = "Username or password is incorrect"`, `extensions.code: "INTERNAL_SERVER_ERROR"` (no dedicated error code!). Clients must map by message.
 - Anonymous requests carry `authorization: null`; authenticated requests pass the token in the same top-level body field.
 
+## 4a. UI feature sweep (Root, live browser) — 2026-11-10
+
+Verified by driving the real site:
+
+- **Filter panel (home feed)**: media type `Photos / Videos / Videos with Sound` (GalleryFilter); categories `art, nature, food, animals` + full directory at `/categories`; sort `random / top / hot / new`; NSFW `All / NSFW / SFW`; "View hidden content" toggle. So `GallerySortBy` includes RANDOM, TOP, HOT, NEW.
+- **Categories** = curated groups of subreddits (Animals, Art, Baby Animals, …); the `/categories` page also lists Popular communities, **Popular collections**, Popular searches; sorting A-Z / Z-A / Popularity.
+- **Leaderboard** (`/leaderboard`, public): top user **collections ranked by likes** (Pos | User | Collection | Likes). Anonymous sees top ~50, "Show More" paginates.
+- **Post page** (fullscreen viewer): Follow (subreddit AND reddit-user), Source → reddit permalink, **Favorite** (count), **Repost** (count), **Comment** (count), Share, **Add to Collection**, **Download**, Auto Scroll, More options → Send Report / File Source / Hide this Post / Fullscreen / Keybindings, "More like this" (`/<post-slug>/discover` = related posts), Prev/Next navigation.
+- **Comments are NATIVE to Scrolller** (not reddit): "0 Comments … Be the first to comment", posting requires login ("Dive In").
+- **Search autocomplete**: subreddit suggestions with post counts/descriptions, **WIT categories** (e.g. "WIT category • Car brands"), and "Global Search" entry.
+- **`/reddit-user/{name}`** pages exist (RedditUserPostsQuery).
+- **Registration form**: Username + Email + Password (min 8) → `RegisterQuery` mutation (registration implementable).
+- **Upload flow exists** (auth-only; upload endpoints host4/host8.scrolller.com/upload found in bundles).
+- NSFW gating banner: "Click here to switch to NSFW mode."
+
+## 4b. Official agent program [verified]
+
+`https://scrolller.com/for-agents` — Scrolller's OWN limited API for AI agents:
+
+- **Agent routes** (public, JSON): `GET /agent/subreddit/{slug}`, `GET /agent/content/{slug}`, `GET /agent/collection/{id}` with `Accept: application/json` (or `application/ld+json`), optional `?format=json|ld+json`, `?limit=20` (collections/subreddits). Cache ≤10 min; rate limit ~1 req/s per IP, 429 on bursts. **Verified live**: subreddit + content (by slug, NOT numeric id) return 200 JSON; numeric content id → 404.
+- Response fields: `contentId, title, description, tags, contentType, embedHtml, embedUrl, source (reddit permalink!), contentRating ("safe"|"explicit"), width, height, canonicalUrl`. **No raw media URLs by design** (monetization-safe) — embeds only.
+- WebMCP browser-executed tools advertised: `search, getCollection, getTrendingContent, getEmbed, getContentMetadata`.
+- Usage terms: use embedHtml for playback, don't scrape raw media URLs via THIS surface, include attribution.
+
+→ We add these as a bonus **embed-safe surface** in the client (`agentSubreddit`, `agentContent`, `agentCollection`) — useful for embeds and attribution-correct integrations; the GraphQL client remains the full-featured surface.
+
 ## 5. Misc endpoints
 
 - `https://api.scrolller.com/admin` — **the real GraphQL endpoint** (despite `NEXT_PUBLIC_HTTP_API=https://api.scrolller.com/api/v2/graphql` printed in a debug console.log — that path 404s [verified]).

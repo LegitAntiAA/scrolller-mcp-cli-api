@@ -33,9 +33,19 @@ class ScrolllerError(Exception):
 
 
 class AuthRequiredError(ScrolllerError):
-    """An auth-required operation was attempted without a token."""
+    """An auth-required operation was attempted without a token.
+
+    CONTRACT.md §5.1 specifies this is raised fail-fast (before any network
+    call) when a locked operation runs without a token — implemented with the
+    operation methods. The alias ``ScrolllerAuthRequiredError`` matches the
+    name used in CONTRACT.md §5.1.
+    """
 
     default_kind = ErrorKind.AUTH_REQUIRED
+
+
+# CONTRACT.md §5.1 names the Python class ScrolllerAuthRequiredError.
+ScrolllerAuthRequiredError = AuthRequiredError
 
 
 class GraphQLError(ScrolllerError):
@@ -58,6 +68,12 @@ class InvalidTokenError(GraphQLError):
     """The API rejected the supplied token (UNAUTHENTICATED/FORBIDDEN)."""
 
     default_kind = ErrorKind.INVALID_TOKEN
+
+
+class InvalidCredentialsError(GraphQLError):
+    """Login rejected the credentials (server signals via generic message)."""
+
+    default_kind = ErrorKind.INVALID_CREDENTIALS
 
 
 class RateLimitedError(ScrolllerError):

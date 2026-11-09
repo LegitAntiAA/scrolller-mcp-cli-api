@@ -15,6 +15,7 @@ import httpx
 
 from scrolller._errors import (
     GraphQLError,
+    InvalidCredentialsError,
     InvalidTokenError,
     NetworkError,
     NotFoundError,
@@ -36,6 +37,9 @@ DEFAULT_USER_AGENT = (
 ORIGIN = "https://scrolller.com"
 
 _AUTH_ERROR_CODES = {"UNAUTHENTICATED", "FORBIDDEN"}
+# The server reports wrong login credentials via a generic INTERNAL_SERVER_ERROR
+# code and this exact message (CONTRACT.md §5.1, RESEARCH.md §3a) — match by message.
+_INVALID_CREDENTIALS_MESSAGE = "Username or password is incorrect"
 
 
 def _build_client(
@@ -104,12 +108,16 @@ def _raise_for_graphql_errors(
     errors: List[Dict[str, Any]], *, http_status: Optional[int] = None
 ) -> None:
     """Raise the normalized error matching a non-empty GraphQL ``errors[]`` list."""
+    raw_message = ""
     code = ""
     if errors and isinstance(errors[0], dict):
+        raw_message = str(errors[0].get("message") or "")
         code = str((errors[0].get("extensions") or {}).get("code") or "")
     message = _error_message(errors, "GraphQL error")
     if code in _AUTH_ERROR_CODES:
         raise InvalidTokenError(message, errors=errors, http_status=http_status)
+    if raw_message.strip() == _INVALID_CREDENTIALS_MESSAGE:
+        raise InvalidCredentialsError(message, errors=errors, http_status=http_status)
     raise GraphQLError(message, errors=errors, http_status=http_status)
 
 

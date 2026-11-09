@@ -6,11 +6,13 @@ from scrolller._errors import (
     AuthRequiredError,
     DownloadError,
     GraphQLError,
+    InvalidCredentialsError,
     InvalidTokenError,
     NetworkError,
     NotFoundError,
     ProxyError,
     RateLimitedError,
+    ScrolllerAuthRequiredError,
     ScrolllerError,
 )
 from scrolller._transport import _interpret_response, _raise_for_graphql_errors
@@ -32,6 +34,7 @@ class _FakeResponse:
 
 CASES = [
     (AuthRequiredError, ErrorKind.AUTH_REQUIRED),
+    (InvalidCredentialsError, ErrorKind.INVALID_CREDENTIALS),
     (InvalidTokenError, ErrorKind.INVALID_TOKEN),
     (GraphQLError, ErrorKind.GRAPHQL_ERROR),
     (RateLimitedError, ErrorKind.RATE_LIMITED),
@@ -65,6 +68,10 @@ def test_invalid_token_is_graphql_error_with_own_kind():
     assert isinstance(err, GraphQLError)
     assert err.kind == ErrorKind.INVALID_TOKEN
     assert err.errors == [{"message": "x"}]
+
+
+def test_scrolller_auth_required_alias():
+    assert ScrolllerAuthRequiredError is AuthRequiredError
 
 
 def test_explicit_kind_overrides_default():
@@ -131,4 +138,25 @@ def test_success_returns_data():
 def test_forbidden_code_maps_to_invalid_token():
     errors = [{"message": "forbidden", "extensions": {"code": "FORBIDDEN"}}]
     with pytest.raises(InvalidTokenError):
+        _raise_for_graphql_errors(errors, http_status=200)
+
+
+def test_wrong_credentials_message_maps_to_invalid_credentials():
+    # Server sends generic INTERNAL_SERVER_ERROR code — mapping is by message
+    # (CONTRACT.md §5.1, RESEARCH.md §3a).
+    errors = [
+        {
+            "message": "Username or password is incorrect",
+            "extensions": {"code": "INTERNAL_SERVER_ERROR"},
+        }
+    ]
+    with pytest.raises(InvalidCredentialsError) as excinfo:
+        _raise_for_graphql_errors(errors, http_status=200)
+    assert excinfo.value.kind == ErrorKind.INVALID_CREDENTIALS
+    assert excinfo.value.errors == errors
+
+
+def test_other_internal_server_error_stays_graphql_error():
+    errors = [{"message": "something else broke", "extensions": {"code": "INTERNAL_SERVER_ERROR"}}]
+    with pytest.raises(GraphQLError):
         _raise_for_graphql_errors(errors, http_status=200)

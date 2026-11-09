@@ -68,15 +68,17 @@ query DiscoverFilteredSubredditsQuery(
 
 
 def main() -> int:
+    # Site-default variable shape (RESEARCH.md §3). Verified live: sending
+    # nullable $filter/$excludeFilters as explicit nulls makes the server
+    # answer INTERNAL_SERVER_ERROR ("Cannot read properties of null (reading
+    # 'length')") — those keys must be omitted instead. $iterator: null is fine.
     variables: Dict[str, Any] = {
-        "filter": None,
-        "sortBy": "HOT",
         "limit": 2,
-        "childLimit": 2,
         "iterator": None,
-        "includeFilters": [],
-        "excludeFilters": None,
         "nsfw": "SFW",
+        "includeFilters": [],
+        "sortBy": "HOT",
+        "childLimit": 2,
     }
     try:
         client = ScrolllerClient()
