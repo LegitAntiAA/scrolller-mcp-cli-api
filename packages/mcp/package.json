@@ -1,0 +1,34 @@
+{
+  "name": "scrolller-mcp",
+  "version": "0.1.0",
+  "description": "Model Context Protocol (MCP) server for Scrolller — lets AI agents search, download, like, comment and manage collections",
+  "type": "module",
+  "main": "./dist/index.js",
+  "bin": {
+    "scrolller-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.15.0",
+    "scrolller-core": "0.1.0",
+    "zod": "^3.25.0"
+  },
+  "keywords": [
+    "scrolller",
+    "mcp",
+    "model-context-protocol",
+    "ai",
+    "agent"
+  ],
+  "license": "MIT"
+}
