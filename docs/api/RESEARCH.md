@@ -97,10 +97,12 @@ Site default variables (as captured): `{"limit":20,"iterator":"<cursor>","nsfw":
 
 ## 4. Media URLs [verified sample]
 
-- Media host: `https://images.scrolller.com/zepto/<uuid>-<reddit-id>-WxH.webp` (optimized variants), `...-<reddit-id>.jpg` / `.../<reddit-id>.jpg` (original).
-- `mediaSources[]` returns a ready list sorted small→large; last entry = best/original.
-- Videos expose `fullLengthSource` (+ `gfycatSource`, `redgifsSource` legacy) and `hasAudio`, `duration`.
-- `type` on media sources: `WEBP`, `JPEG`, ... (video types TBD: expected `MP4`/`M3U8`).
+- Image host: `https://images.scrolller.com/zepto/...-WxH.webp` (optimized variants) and original `.jpg`/`.png`.
+- Video host: `https://zepto.scrolller.com/<post-slug>.mp4` / `.webm` — **videos come directly in `mediaSources[]`** with `type: "MP4" | "WEBM"` and width/height.
+- `mediaSources[]` types observed [verified]: `WEBP`, `JPEG`, `PNG`, `GIF`, `MP4`, `WEBM`. List sorted small→large; pick last (or best per type) for download.
+- Video URL probes [verified]: `HTTP 200`, `Content-Type: video/mp4`, `Accept-Ranges: bytes`, `Range: bytes=0-1023` → `206` (resumable + progress supported). No auth, no special headers.
+- ⚠️ `gfycatSource` / `redgifsSource` / `fullLengthSource` can be the literal string `"undefined"` (backend artifact) — clients MUST normalize to `null`.
+- `hasAudio`, `duration` (seconds, null for images) on posts; audio sidecar TBD from T1.
 
 ## 5. Misc endpoints
 
