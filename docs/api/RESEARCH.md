@@ -104,6 +104,28 @@ Site default variables (as captured): `{"limit":20,"iterator":"<cursor>","nsfw":
 - ⚠️ `gfycatSource` / `redgifsSource` / `fullLengthSource` can be the literal string `"undefined"` (backend artifact) — clients MUST normalize to `null`.
 - `hasAudio`, `duration` (seconds, null for images) on posts; audio sidecar TBD from T1.
 
+## 3a. Login [verified]
+
+Captured live from the login form (POST `https://api.scrolller.com/admin`, same body format):
+
+```graphql
+query LoginQuery($username: String!, $password: String!) {
+  login(username: $username, password: $password) {
+    username
+    token
+    expiresAt
+    isAdmin
+    deleted_at
+    isPremium
+  }
+}
+```
+
+- `username` accepts username **or email**; password sent as plaintext over HTTPS (no client-side hashing).
+- Success → `token` + `expiresAt` (token expiry — persist both; clients can warn/re-auth on expiry).
+- Wrong credentials → HTTP 200 with `errors[0].message = "Username or password is incorrect"`, `extensions.code: "INTERNAL_SERVER_ERROR"` (no dedicated error code!). Clients must map by message.
+- Anonymous requests carry `authorization: null`; authenticated requests pass the token in the same top-level body field.
+
 ## 5. Misc endpoints
 
 - `https://api.scrolller.com/admin` — **the real GraphQL endpoint** (despite `NEXT_PUBLIC_HTTP_API=https://api.scrolller.com/api/v2/graphql` printed in a debug console.log — that path 404s [verified]).

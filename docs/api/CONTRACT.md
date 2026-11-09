@@ -61,7 +61,17 @@ Env overrides (read by CLI and MCP): `SCROLLLER_TOKEN`, `SCROLLLER_NSFW`, `SCROL
 
 ## 5. Errors (normalized across surfaces)
 
-`ScrolllerError` base with subclasses/`kind`: `AUTH_REQUIRED`, `INVALID_TOKEN`, `GRAPHQL_ERROR` (message + extensions.code from API), `RATE_LIMITED`, `NETWORK_ERROR`, `PROXY_ERROR`, `NOT_FOUND`, `DOWNLOAD_ERROR`. HTTP status + GraphQL errors[] preserved. CLI prints human message (exit code 1); MCP returns `isError` with message; libraries throw.
+`ScrolllerError` base with subclasses/`kind`: `AUTH_REQUIRED`, `INVALID_CREDENTIALS`, `INVALID_TOKEN`, `GRAPHQL_ERROR` (message + extensions.code from API), `RATE_LIMITED`, `NETWORK_ERROR`, `PROXY_ERROR`, `NOT_FOUND`, `DOWNLOAD_ERROR`. HTTP status + GraphQL errors[] preserved. CLI prints human message (exit code 1); MCP returns `isError` with message; libraries throw.
+
+### 5.1 Auth-required UX (binding for all surfaces)
+
+The client **knows which operations require auth** (matrix §6). For a 🔒 operation without a token, fail **fast** (before any network call) with `AUTH_REQUIRED`. Server-side auth errors map to the same kind as a backstop.
+
+- **Python**: raises `ScrolllerAuthRequiredError` with message: `Authentication required. Call client.login(username, password), pass token to ScrolllerClient(token=...), or run: scrolller login / scrolller token <token>`
+- **CLI**: prints `Not authenticated. Run "scrolller login" (interactive) or "scrolller token <token>"` → exit code 1.
+- **MCP**: tool result `isError: true` with the same guidance text (agents can then call the `login` tool).
+
+`INVALID_CREDENTIALS` is mapped from the server message `"Username or password is incorrect"` (server returns generic `INTERNAL_SERVER_ERROR` code — match by message, see RESEARCH.md §3a).
 
 ## 6. Operation matrix
 
@@ -85,7 +95,9 @@ Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP 
 | 13 | Create collection | `createCollection(name)` | `scrolller collection create <name>` | `create_collection` | 🔒 | planned |
 | 14 | Add/remove to collection | `collectionAdd/Remove(...)` | `scrolller collection add/remove` | `add_to_collection` / `remove_from_collection` | 🔒 | planned |
 | 15 | Logged-in user | `me()` | `scrolller whoami` | `whoami` | 🔒 | planned |
-| 16 | Login (token) | `setToken(token)` | `scrolller login --token` | `set_token` | — | planned |
+| 16a | Login with credentials [verified] | `login(username, password)` → `{token, expiresAt, username, isPremium}`; persists token+expiry to config | `scrolller login` (interactive prompts; `scrolller login <user> <pass>` for non-interactive) | `login` | 🔓 | verified-shape |
+| 16b | Set token manually | `setToken(token)` (persists) | `scrolller token <token>` | `set_token` | — | planned |
+| 16c | Logout (clear token from config) | `logout()` | `scrolller logout` | `logout` | — | planned |
 | 17 | Notifications | `notifications(opts)` | `scrolller notifications` | `get_notifications` | 🔒 | planned |
 | 18 | Messages | `conversations()`, `messages(conv)`, `sendMessage(conv, text)` | `scrolller messages ...` | `get_conversations` / `get_messages` / `send_message` | 🔒 | planned |
 | 19 | User profile & posts | `user(name)`, `userPosts(name)` | `scrolller user <name>` | `get_user` / `get_user_posts` | 🔓 | planned |
