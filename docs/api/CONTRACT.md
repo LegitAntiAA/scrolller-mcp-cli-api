@@ -17,6 +17,9 @@ Operation matrix: §6. Ground-truth protocol details: `docs/api/RESEARCH.md`.
 - ⚠️ **Null-variable trap [verified]**: nullable list variables (`$filter`, `$includeFilters`, `$excludeFilters`) MUST be **omitted** from `variables` when unused — sending explicit `null` → HTTP 200 `INTERNAL_SERVER_ERROR`. `$iterator: null` is fine. All transports drop undefined/null optional filter variables automatically.
 - Enums [bundle-verified]: `GallerySortBy = RANDOM | TOP | HOT | NEW | CONTROVERSIAL`; `GalleryFilter = CATEGORY | SUBREDDIT | ALBUM | VIDEO | PICTURE | SOUND` (site UI maps: Photos=PICTURE, Videos=VIDEO, Videos with Sound=SOUND→VIDEO swap server-side); `NsfwFilter = SFW | NSFW | ALL`. Default sortBy on most feeds: RANDOM.
 - Search-family queries (`searchSubreddits`, `searchCollections`, `searchUsers`, `searchSubredditWithPreview`) paginate by **`pageIndex` (offset)**, not iterator. Comments paginate by `pagination: {limit, cursor}` where cursor = last comment id. Notifications/messages use numeric `page`. Full per-query table: `docs/api/T1-RESEARCH-FULL.md` §6.
+- ⚠️ `iterator` strings are opaque and MUST be passed back **byte-exact** (including the merged following-iterator `"A++B"` and subreddit-children `"x;y"` formats). Never parse, trim or re-encode them.
+- ⚠️ Comment list queries (`getComments`, `getRepliesFromComment`) return **plain arrays** (no `{items}` wrapper) — page when `length < limit`.
+- Browser token storage (for manual token extraction in README): `localStorage["SCROLLLER_BETA_1:SCROLLLER_LOGIN_DEV"]` — JSON with token + expiry.
 
 ## 2. Client surface (core libraries)
 
