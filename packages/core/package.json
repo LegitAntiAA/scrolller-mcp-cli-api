@@ -16,10 +16,15 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "smoke": "node dist/smoke.js"
+  },
+  "dependencies": {
+    "socks": "^2.8.10",
+    "undici": "^8.0.0"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22.19"
   },
   "keywords": [
     "scrolller",

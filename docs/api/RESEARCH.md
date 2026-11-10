@@ -1,7 +1,10 @@
 # Scrolller API — VERIFIED RESEARCH (live probes + bundle analysis)
 
-Status: endpoint **verified live** (HTTP 200, real data). This file is the ground truth for `CONTRACT.md`.
-Values marked `[verified]` were confirmed by real requests on 2026-11-10; other details come from JS bundle analysis (see §Sources).
+> ⚠️ **HISTORICAL SNAPSHOT** of the live-probing phase (2026-11-10). The **authoritative** protocol reference is
+> [`T1-RESEARCH-FULL.md`](./T1-RESEARCH-FULL.md) (full SDL catalog from all 118 chunks). Known corrections since this
+> snapshot: `GallerySortBy` also has `CONTROVERSIAL` (default RANDOM); video files live on `atto`/`gamma`/`zepto`/`pico`
+> hosts (varies per post); **no separate audio URL exists** (audio is inside mp4/webm); `fullLengthSource`/`gfycatSource`/
+> `redgifsSource` are page links, not media files; registration requires reCAPTCHA (not implementable).
 
 ## 1. Endpoint & request format [verified]
 

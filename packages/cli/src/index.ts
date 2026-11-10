@@ -17,7 +17,12 @@ program
   .name("scrolller")
   .description("Scrolller toolkit — search, download, like, comment, collect (unofficial)")
   .version(version)
-  .option("--no-banner", "hide the ASCII banner");
+  .option("--no-banner", "hide the ASCII banner")
+  .action(() => {
+    // Bare invocation: banner (already shown below) + help on stdout, exit 0.
+    program.outputHelp();
+    process.exit(0);
+  });
 
 program
   .command("donate")
@@ -27,9 +32,12 @@ program
   });
 
 // Show the banner when running interactively with no subcommand or with --help.
-const isHelpArg = process.argv.includes("--help") || process.argv.includes("-h");
-const hasSubcommand = process.argv.slice(2).some((a) => !a.startsWith("-"));
-const showBanner = process.env["SCROLLLER_NO_BANNER"] !== "1" && (isHelpArg || !hasSubcommand);
+const argv = process.argv.slice(2);
+const isHelpArg = argv.includes("--help") || argv.includes("-h");
+const isVersionArg = argv.includes("--version") || argv.includes("-V");
+const noBanner = argv.includes("--no-banner") || process.env["SCROLLLER_NO_BANNER"] === "1";
+const hasSubcommand = argv.some((a) => !a.startsWith("-"));
+const showBanner = !noBanner && !isVersionArg && (isHelpArg || !hasSubcommand);
 
 if (showBanner) {
   console.log(renderBanner({ version, donate: !process.argv.includes("--no-banner") }));

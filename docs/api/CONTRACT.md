@@ -3,7 +3,7 @@
 This is the single source of truth. **Every operation here MUST exist with identical semantics in all four surfaces:**
 `scrolller-core` (TypeScript) · `scrolller-cli` (CLI commands) · `scrolller-mcp` (MCP tools) · `scrolller-py` (Python, sync + async).
 
-Operation matrix: §6. Ground-truth protocol details: `docs/api/RESEARCH.md`.
+Operation matrix: §6. **Ground-truth protocol details: `docs/api/T1-RESEARCH-FULL.md` (authoritative)**; `docs/api/RESEARCH.md` is a historical snapshot of the live-probing phase.
 
 ## 1. Transport (all implementations)
 
@@ -79,6 +79,8 @@ The client **knows which operations require auth** (matrix §6). For a 🔒 oper
 
 `INVALID_CREDENTIALS` is mapped from the server message `"Username or password is incorrect"` (server returns generic `INTERNAL_SERVER_ERROR` code — match by message, see RESEARCH.md §3a).
 
+Server-side **token rejections** (`UNAUTHENTICATED`/`FORBIDDEN` codes) map to `INVALID_TOKEN` (more informative than a generic auth error); `AUTH_REQUIRED` is reserved for the client-side fail-fast (🔒 operation attempted with no token) and "login required"-style server messages.
+
 ## 6. Operation matrix
 
 Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP column = tool name; both 1:1 with core method.
@@ -124,7 +126,7 @@ Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP 
 ## 7. Download semantics (all surfaces)
 
 - Input: post ref (scrolller URL, redditPath, or post object). Output: files in `download_dir`.
-- Pick largest `mediaSources` entry; videos: prefer `fullLengthSource`; audio sidecar fetched when present and merged only if ffmpeg available (otherwise save alongside with `.audio` suffix + warning).
+- **Download URLs come ONLY from post-level `mediaSources[]`**: videos = the MP4/WEBM entry with the largest area; images = the largest entry. `fullLengthSource` / `gfycatSource` / `redgifsSource` are reference **page** links (gfycat/redgifs web pages) — NEVER download from them. No separate audio URL exists (audio is inside mp4/webm; `hasAudio` is client-detected metadata).
 - Filename: `<postId>-<slug or subreddit>-<WxH>.<ext>`; collisions → numeric suffix. No overwrite by default.
 - Progress: CLI shows progress bar; MCP `download_media` returns saved path(s); library exposes `onProgress` callback (TS) / `progress_callback` (Python).
 - Concurrency: `download` of N items uses default 4 parallel workers (configurable).

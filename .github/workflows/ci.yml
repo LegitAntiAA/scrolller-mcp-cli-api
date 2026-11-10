@@ -10,21 +10,25 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [20, 24]
+        node-version: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-      - run: npm install
+      - run: npm ci
       - run: npm run build --workspaces --if-present
       - run: npm test --workspaces --if-present
 
   python:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         python-version: ["3.9", "3.13"]
+        os: [ubuntu-latest]
+        include:
+          - python-version: "3.13"
+            os: windows-latest
     defaults:
       run:
         working-directory: python
