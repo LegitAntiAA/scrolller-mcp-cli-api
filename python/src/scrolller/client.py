@@ -1,8 +1,9 @@
 """ScrolllerClient + AsyncScrolllerClient (CONTRACT.md §2).
 
-Transport-phase surface only (CONTRACT.md §6 operation matrix comes later):
-``request`` / ``set_token`` / ``config`` / ``set_proxy`` / ``download``.
-Config resolution follows CONTRACT.md §3: explicit args > env > file > defaults.
+Full operation surface: the ``_ops_*`` mixins add the CONTRACT.md §6
+operation matrix on top of the transport (``request`` / ``set_token`` /
+``config`` / ``set_proxy`` / ``download``). Config resolution follows
+CONTRACT.md §3: explicit args > env > file > defaults.
 """
 
 from __future__ import annotations
@@ -19,6 +20,14 @@ from scrolller._config import (
 )
 from scrolller._download import ProgressCallback, download_media
 from scrolller._errors import DownloadError
+from scrolller._ops_account import AccountOps, AsyncAccountOps
+from scrolller._ops_base import AsyncClientOpsBase, ClientOpsBase
+from scrolller._ops_collections import AsyncCollectionOps, CollectionOps
+from scrolller._ops_comments import AsyncCommentOps, CommentOps
+from scrolller._ops_feed import AsyncFeedOps, FeedOps
+from scrolller._ops_messaging import AsyncMessagingOps, MessagingOps
+from scrolller._ops_posts import AsyncPostOps, PostOps
+from scrolller._ops_social import AsyncSocialOps, SocialOps
 from scrolller._proxy import as_proxy_config
 from scrolller._transport import AsyncTransport, Transport
 from scrolller._types import ClientOptions
@@ -34,8 +43,17 @@ def _persist_config_value(options: ClientOptions, key: str, value: Any) -> None:
     save_config_file(path, file_cfg)
 
 
-class ScrolllerClient:
-    """Minimal synchronous Scrolller client (transport foundation)."""
+class ScrolllerClient(
+    ClientOpsBase,
+    FeedOps,
+    PostOps,
+    CommentOps,
+    CollectionOps,
+    SocialOps,
+    AccountOps,
+    MessagingOps,
+):
+    """Synchronous Scrolller client (CONTRACT.md §2 + §6 operation matrix)."""
 
     def __init__(
         self,
@@ -85,9 +103,7 @@ class ScrolllerClient:
         is_mutation: bool = False,
     ) -> Any:
         """Execute one GraphQL request; return the response ``data`` field."""
-        return self._transport.graphql_request(
-            query, variables, token=self._options.token, is_mutation=is_mutation
-        )
+        return self._request(query, variables, is_mutation=is_mutation)
 
     def set_token(self, token: Optional[str]) -> None:
         """Set or clear the auth token; persists to the config file (§6 row 16b)."""
@@ -131,10 +147,18 @@ class ScrolllerClient:
         )
 
 
-class AsyncScrolllerClient:
-    """Async mirror of :class:`ScrolllerClient` (same minimal surface).
+class AsyncScrolllerClient(
+    AsyncClientOpsBase,
+    AsyncFeedOps,
+    AsyncPostOps,
+    AsyncCommentOps,
+    AsyncCollectionOps,
+    AsyncSocialOps,
+    AsyncAccountOps,
+    AsyncMessagingOps,
+):
+    """Async mirror of :class:`ScrolllerClient` (same operation surface).
 
-    Native async media streaming arrives with the operation-methods phase;
     ``download`` currently runs the sync downloader in a worker thread
     (``asyncio.to_thread``) against a shared, proxy-aware httpx client.
     """
@@ -187,9 +211,7 @@ class AsyncScrolllerClient:
         is_mutation: bool = False,
     ) -> Any:
         """Execute one GraphQL request; return the response ``data`` field."""
-        return await self._transport.graphql_request(
-            query, variables, token=self._options.token, is_mutation=is_mutation
-        )
+        return await self._request(query, variables, is_mutation=is_mutation)
 
     def set_token(self, token: Optional[str]) -> None:
         """Set or clear the auth token; persists to the config file (§6 row 16b)."""

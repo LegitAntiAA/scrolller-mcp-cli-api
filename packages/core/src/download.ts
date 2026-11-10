@@ -1,7 +1,10 @@
 /** Media downloads (CONTRACT.md §7).
  *
- * - Source choice: videos prefer `fullLengthSource`; otherwise the largest
- *   `mediaSources` entry by width*height (list is small→large per RESEARCH.md §4).
+ * - Source choice: ONLY from post-level `mediaSources[]` — videos (MP4/WEBM)
+ *   pick the largest-area video entry, images the largest-area entry
+ *   (list is small→large per RESEARCH.md §4). `fullLengthSource` /
+ *   `gfycatSource` / `redgifsSource` are reference PAGE URLs (gfycat/redgifs
+ *   web pages), never media files — never download from them (BUG-1).
  *   Literal "undefined"/"null" strings in source fields (backend artifact) are
  *   treated as absent.
  * - Filename: `<postId>-<slug or subreddit>-<WxH>.<ext>`; collisions get a
@@ -72,7 +75,10 @@ function asNumberOrNull(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** Normalize a media source entry; scalar URLs become `{url}`. Literal "undefined"/"null" strings are treated as absent. */
+/** Normalize a media source entry; scalar URLs become `{url}`. Literal
+ * "undefined"/"null" strings (backend artifact, occurs in page-link fields and
+ * inside `mediaSources[]` entries) are treated as absent (BUG-1).
+ */
 function asSource(value: unknown): NormalizedSource | null {
   if (typeof value === "string") {
     return value && !INVALID_SOURCE_STRINGS.has(value) ? { url: value } : null;
@@ -95,10 +101,14 @@ function areaOf(source: NormalizedSource): number {
   return Math.max(0, Math.trunc(source.width ?? 0)) * Math.max(0, Math.trunc(source.height ?? 0));
 }
 
-/** Pick the download source for a post (CONTRACT.md §7): videos prefer `fullLengthSource`, else the largest `mediaSources` entry by area. */
+/** Pick the download source for a post (CONTRACT.md §7): ONLY from post-level
+ * `mediaSources[]` — when video entries (MP4/WEBM) exist, the largest-area
+ * video entry wins; otherwise the largest-area image entry.
+ *
+ * `fullLengthSource` / `gfycatSource` / `redgifsSource` are reference PAGE
+ * links (gfycat/redgifs web pages) and are deliberately ignored (BUG-1).
+ */
 export function bestMediaSource(post: PostLike): NormalizedSource {
-  const fullLength = asSource(post.fullLengthSource);
-  if (fullLength) return fullLength;
   const candidates: NormalizedSource[] = [];
   const raw = post.mediaSources;
   if (Array.isArray(raw)) {
@@ -108,9 +118,20 @@ export function bestMediaSource(post: PostLike): NormalizedSource {
     }
   }
   if (candidates.length === 0) {
-    throw new DownloadError("post has no usable media sources");
+    throw new DownloadError(
+      "post has no usable mediaSources entries (fullLengthSource/gfycatSource/redgifsSource are page links, never media files)",
+    );
   }
-  return candidates.reduce((best, source) => (areaOf(source) > areaOf(best) ? source : best));
+  const videos = candidates.filter((source) => isVideoSource(source));
+  const pool = videos.length > 0 ? videos : candidates;
+  return pool.reduce((best, source) => (areaOf(source) > areaOf(best) ? source : best));
+}
+
+function isVideoSource(source: NormalizedSource): boolean {
+  const type = (source.type ?? "").toUpperCase();
+  if (type === "MP4" || type === "WEBM") return true;
+  const clean = source.url.split("?")[0] ?? source.url;
+  return clean.toLowerCase().endsWith(".mp4") || clean.toLowerCase().endsWith(".webm");
 }
 
 function audioSourceOf(post: PostLike): NormalizedSource | null {

@@ -24,6 +24,37 @@ class NsfwFilter(str, enum.Enum):
     ALL = "ALL"
 
 
+class GallerySortBy(str, enum.Enum):
+    """GallerySortBy GraphQL enum (T1-RESEARCH-FULL.md §4, bundle-verified)."""
+
+    RANDOM = "RANDOM"
+    TOP = "TOP"
+    HOT = "HOT"
+    NEW = "NEW"
+    CONTROVERSIAL = "CONTROVERSIAL"
+
+
+class GalleryFilter(str, enum.Enum):
+    """GalleryFilter GraphQL enum (T1-RESEARCH-FULL.md §4, bundle-verified).
+
+    Site UI maps: Photos=PICTURE, Videos=VIDEO, "Videos with Sound"=SOUND
+    (the site swaps SOUND→VIDEO in two callers; the client passes the value
+    through verbatim).
+    """
+
+    CATEGORY = "CATEGORY"
+    SUBREDDIT = "SUBREDDIT"
+    ALBUM = "ALBUM"
+    VIDEO = "VIDEO"
+    PICTURE = "PICTURE"
+    SOUND = "SOUND"
+
+
+# Non-GraphQL endpoints (T1-RESEARCH-FULL.md §1, RESEARCH.md §4b).
+AGENT_BASE_URL = "https://scrolller.com"
+UPLOAD_URL = "https://host8.scrolller.com/upload"
+
+
 class ProxyType(str, enum.Enum):
     """Proxy transport types (CONTRACT.md §4)."""
 

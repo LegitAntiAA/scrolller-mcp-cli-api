@@ -8,6 +8,14 @@ export const DEFAULT_READ_RETRIES = 1;
 export type NsfwFilter = "SFW" | "NSFW" | "ALL";
 export const NSFW_FILTERS: readonly NsfwFilter[] = ["SFW", "NSFW", "ALL"];
 
+/** GallerySortBy enum (bundle-verified, CONTRACT.md §1). Site default on most feeds: RANDOM. */
+export type GallerySortBy = "RANDOM" | "TOP" | "HOT" | "NEW" | "CONTROVERSIAL";
+export const GALLERY_SORT_BYS: readonly GallerySortBy[] = ["RANDOM", "TOP", "HOT", "NEW", "CONTROVERSIAL"];
+
+/** GalleryFilter enum (bundle-verified, CONTRACT.md §1). SOUND requests are swapped to VIDEO server-side in some callers. */
+export type GalleryFilter = "CATEGORY" | "SUBREDDIT" | "ALBUM" | "VIDEO" | "PICTURE" | "SOUND";
+export const GALLERY_FILTERS: readonly GalleryFilter[] = ["CATEGORY", "SUBREDDIT", "ALBUM", "VIDEO", "PICTURE", "SOUND"];
+
 /** Proxy transport types (CONTRACT.md §4). */
 export type ProxyType = "http" | "https" | "socks4" | "socks5";
 export const PROXY_TYPES: readonly ProxyType[] = ["http", "https", "socks4", "socks5"];
@@ -104,6 +112,8 @@ export interface ScrolllerClientInput {
 /** Config file shape (CONTRACT.md §3, snake_case keys). */
 export interface ScrolllerConfigFile {
   token?: string | null;
+  /** Login-token expiry (epoch seconds, from LoginQuery.expiresAt — CONTRACT.md row 16a). */
+  expires_at?: number | string | null;
   nsfw?: string | null;
   user_agent?: string | null;
   extra_headers?: Record<string, string> | null;
