@@ -36,6 +36,21 @@ def _parse_list(raw_list: Any, parser: Callable[[Dict[str, Any]], T]) -> List[T]
     return [parser(item) for item in raw_list if isinstance(item, dict)]
 
 
+def _album_sources(raw_value: Any) -> List["MediaSource"]:
+    """Flatten ``albumContent`` to one MediaSource list.
+
+    The SDL selection is ``albumContent { mediaSources { ... } }`` (a dict),
+    but live responses also return it as a LIST of such groups (observed on
+    /r/aww, T7-phase2 smoke) — both shapes parse loosely here.
+    """
+    groups = raw_value if isinstance(raw_value, list) else [raw_value]
+    sources: List[MediaSource] = []
+    for group in groups:
+        if isinstance(group, dict):
+            sources.extend(_sources(group.get("mediaSources")))
+    return sources
+
+
 # ---------------------------------------------------------------------------
 # Page containers
 # ---------------------------------------------------------------------------
@@ -194,7 +209,7 @@ def post_from_raw(raw: Dict[str, Any]) -> Post:
         comments_replies_count=raw.get("commentsRepliesCount"),
         duration=raw.get("duration"),
         created_at=raw.get("createdAt"),
-        album_content=_sources(raw.get("albumContent") and raw["albumContent"].get("mediaSources")),
+        album_content=_album_sources(raw.get("albumContent")),
         is_favorite=raw.get("isFavorite"),
         is_reposted=raw.get("isReposted"),
         media_sources=_sources(raw.get("mediaSources")),

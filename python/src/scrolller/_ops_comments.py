@@ -3,13 +3,18 @@
 Readers return PLAIN ARRAYS (no ``{items}`` wrapper): page when
 ``length < limit`` and chain the cursor from the LAST comment id
 (CONTRACT.md §1). Site page sizes: 15 top-level, 3 replies.
+
+Post refs follow the TypeScript core's ``PostRef``: an int id, a bare
+numeric string, or a scrolller URL — URLs go through ``ResolveScrolllerLinks``
+with :func:`scrolller._ops_base.to_absolute_url` applied (the resolver only
+accepts absolute ``https://scrolller.com/...`` URLs), resolved ONCE before
+the cursor chain starts.
 """
 
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Dict, Iterator, List, Optional
+from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Union
 
-from scrolller._errors import ScrolllerError
 from scrolller._graphql import (
     Q_CREATE_COMMENT,
     Q_CREATE_COMMENT_REPLY,
@@ -23,11 +28,16 @@ from scrolller._graphql import (
 from scrolller._models import (
     Comment,
     CreatedComment,
-    created_comment_from_raw,
     comment_from_raw,
+    created_comment_from_raw,
 )
 
 __all__ = ["AsyncCommentOps", "CommentOps"]
+
+PostRef = Union[int, str]
+
+COMMENTS_LIMIT = 15
+REPLIES_LIMIT = 3
 
 
 def _comments_from_data(data: Any, key: str) -> List[Comment]:
@@ -37,46 +47,53 @@ def _comments_from_data(data: Any, key: str) -> List[Comment]:
     return [comment_from_raw(item) for item in payload if isinstance(item, dict)]
 
 
-def _post_id_from_ref(ref: Any) -> int:
-    """Validate a numeric post id (URLs are resolved by the caller)."""
-    if isinstance(ref, int) and not isinstance(ref, bool):
-        return ref
-    raise ScrolllerError("post ref must be a post id (int) or a scrolller post URL")
+def _comments_page_variables(post_id: int, limit: int, cursor: Optional[int]) -> Dict[str, Any]:
+    pagination: Dict[str, Any] = {"limit": int(limit)}
+    if cursor is not None:
+        pagination["cursor"] = int(cursor)
+    return {"post_id": int(post_id), "pagination": pagination}
 
 
-def _post_id_error(ref: Any) -> ScrolllerError:
-    return ScrolllerError(f"cannot resolve a post id from {ref!r}")
+def _replies_page_variables(comment_id: int, limit: int, cursor: Optional[int]) -> Dict[str, Any]:
+    pagination: Dict[str, Any] = {"limit": int(limit)}
+    if cursor is not None:
+        pagination["cursor"] = int(cursor)
+    return {"comment_id": int(comment_id), "pagination": pagination}
 
 
 class CommentOps:
     """Sync mixin: comment readers + writers."""
 
     def get_comments(
-        self, post_id: int, *, limit: int = 15, cursor: Optional[int] = None
+        self, post_ref: PostRef, *, limit: int = COMMENTS_LIMIT, cursor: Optional[int] = None
     ) -> List[Comment]:
         """Top-level comments of a post (plain array; site page size 15).
 
+        ``post_ref`` is a post id, numeric string, or scrolller post URL
+        (relative paths are made absolute before resolving).
         ``cursor`` is the id of the last comment of the previous page.
         """
-        variables: Dict[str, Any] = {
-            "post_id": int(post_id),
-            "pagination": {"limit": int(limit)},
-        }
-        if cursor is not None:
-            variables["pagination"]["cursor"] = int(cursor)
-        return _comments_from_data(self._request(Q_GET_COMMENTS, variables), "getComments")
+        post_id = self._resolve_post_id(post_ref)
+        return _comments_from_data(
+            self._request(Q_GET_COMMENTS, _comments_page_variables(post_id, limit, cursor)),
+            "getComments",
+        )
 
     def get_comments_pages(
         self,
-        post_id: int,
+        post_ref: PostRef,
         *,
-        limit: int = 15,
+        limit: int = COMMENTS_LIMIT,
         max_pages: Optional[int] = None,
         cursor: Optional[int] = None,
     ) -> Iterator[List[Comment]]:
+        post_id = self._resolve_post_id(post_ref)
         pages = 0
         while max_pages is None or pages < max_pages:
-            items = self.get_comments(post_id, limit=limit, cursor=cursor)
+            items = _comments_from_data(
+                self._request(Q_GET_COMMENTS, _comments_page_variables(post_id, limit, cursor)),
+                "getComments",
+            )
             pages += 1
             yield items
             if len(items) < int(limit):
@@ -84,10 +101,10 @@ class CommentOps:
             cursor = items[-1].id
 
     def list_comments(
-        self, post_id: int, *, limit: Optional[int] = None, **opts: Any
+        self, post_ref: PostRef, *, limit: Optional[int] = None, **opts: Any
     ) -> List[Comment]:
         out: List[Comment] = []
-        for page in self.get_comments_pages(post_id, **opts):
+        for page in self.get_comments_pages(post_ref, **opts):
             for comment in page:
                 out.append(comment)
                 if limit is not None and len(out) >= limit:
@@ -95,30 +112,34 @@ class CommentOps:
         return out
 
     def get_replies_from_comment(
-        self, comment_id: int, *, limit: int = 3, cursor: Optional[int] = None
+        self, comment_id: int, *, limit: int = REPLIES_LIMIT, cursor: Optional[int] = None
     ) -> List[Comment]:
         """Replies of one comment (plain array; site page size 3)."""
-        variables: Dict[str, Any] = {
-            "comment_id": int(comment_id),
-            "pagination": {"limit": int(limit)},
-        }
-        if cursor is not None:
-            variables["pagination"]["cursor"] = int(cursor)
         return _comments_from_data(
-            self._request(Q_GET_REPLIES_FROM_COMMENT, variables), "getRepliesFromComment"
+            self._request(
+                Q_GET_REPLIES_FROM_COMMENT,
+                _replies_page_variables(comment_id, limit, cursor),
+            ),
+            "getRepliesFromComment",
         )
 
     def get_replies_from_comment_pages(
         self,
         comment_id: int,
         *,
-        limit: int = 3,
+        limit: int = REPLIES_LIMIT,
         max_pages: Optional[int] = None,
         cursor: Optional[int] = None,
     ) -> Iterator[List[Comment]]:
         pages = 0
         while max_pages is None or pages < max_pages:
-            items = self.get_replies_from_comment(comment_id, limit=limit, cursor=cursor)
+            items = _comments_from_data(
+                self._request(
+                    Q_GET_REPLIES_FROM_COMMENT,
+                    _replies_page_variables(comment_id, limit, cursor),
+                ),
+                "getRepliesFromComment",
+            )
             pages += 1
             yield items
             if len(items) < int(limit):
@@ -138,18 +159,16 @@ class CommentOps:
 
     # -- writes (fail-fast AUTH_REQUIRED without a token) --------------------
 
-    def create_comment(self, post_ref: Any, content: str) -> CreatedComment:
-        """Comment on a post (createComment). ``post_ref`` is a post id or URL."""
+    def create_comment(self, post_ref: PostRef, content: str) -> CreatedComment:
+        """Comment on a post (createComment). ``post_ref`` is a post id,
+        numeric string, or scrolller post URL."""
         self._require_token()
-        if isinstance(post_ref, str):
-            link = self.resolve_link(post_ref)
-            if link is None or link.post is None or link.post.id is None:
-                raise _post_id_error(post_ref)
-            post_id = int(link.post.id)
-        else:
-            post_id = _post_id_from_ref(post_ref)
-        data = self._request(Q_CREATE_COMMENT, {"content": content, "post_id": post_id},
-                             is_mutation=True)
+        post_id = self._resolve_post_id(post_ref)
+        data = self._request(
+            Q_CREATE_COMMENT,
+            {"content": content, "post_id": post_id},
+            is_mutation=True,
+        )
         return created_comment_from_raw((data or {}).get("createComment"))
 
     def create_comment_reply(self, parent_comment_id: int, content: str) -> CreatedComment:
@@ -188,27 +207,31 @@ class AsyncCommentOps:
     """Async mirror of :class:`CommentOps`."""
 
     async def get_comments(
-        self, post_id: int, *, limit: int = 15, cursor: Optional[int] = None
+        self, post_ref: PostRef, *, limit: int = COMMENTS_LIMIT, cursor: Optional[int] = None
     ) -> List[Comment]:
-        variables: Dict[str, Any] = {
-            "post_id": int(post_id),
-            "pagination": {"limit": int(limit)},
-        }
-        if cursor is not None:
-            variables["pagination"]["cursor"] = int(cursor)
-        return _comments_from_data(await self._request(Q_GET_COMMENTS, variables), "getComments")
+        post_id = await self._resolve_post_id(post_ref)
+        return _comments_from_data(
+            await self._request(Q_GET_COMMENTS, _comments_page_variables(post_id, limit, cursor)),
+            "getComments",
+        )
 
     async def get_comments_pages(
         self,
-        post_id: int,
+        post_ref: PostRef,
         *,
-        limit: int = 15,
+        limit: int = COMMENTS_LIMIT,
         max_pages: Optional[int] = None,
         cursor: Optional[int] = None,
     ) -> AsyncIterator[List[Comment]]:
+        post_id = await self._resolve_post_id(post_ref)
         pages = 0
         while max_pages is None or pages < max_pages:
-            items = await self.get_comments(post_id, limit=limit, cursor=cursor)
+            items = _comments_from_data(
+                await self._request(
+                    Q_GET_COMMENTS, _comments_page_variables(post_id, limit, cursor)
+                ),
+                "getComments",
+            )
             pages += 1
             yield items
             if len(items) < int(limit):
@@ -216,10 +239,10 @@ class AsyncCommentOps:
             cursor = items[-1].id
 
     async def list_comments(
-        self, post_id: int, *, limit: Optional[int] = None, **opts: Any
+        self, post_ref: PostRef, *, limit: Optional[int] = None, **opts: Any
     ) -> List[Comment]:
         out: List[Comment] = []
-        async for page in self.get_comments_pages(post_id, **opts):
+        async for page in self.get_comments_pages(post_ref, **opts):
             for comment in page:
                 out.append(comment)
                 if limit is not None and len(out) >= limit:
@@ -227,29 +250,33 @@ class AsyncCommentOps:
         return out
 
     async def get_replies_from_comment(
-        self, comment_id: int, *, limit: int = 3, cursor: Optional[int] = None
+        self, comment_id: int, *, limit: int = REPLIES_LIMIT, cursor: Optional[int] = None
     ) -> List[Comment]:
-        variables: Dict[str, Any] = {
-            "comment_id": int(comment_id),
-            "pagination": {"limit": int(limit)},
-        }
-        if cursor is not None:
-            variables["pagination"]["cursor"] = int(cursor)
         return _comments_from_data(
-            await self._request(Q_GET_REPLIES_FROM_COMMENT, variables), "getRepliesFromComment"
+            await self._request(
+                Q_GET_REPLIES_FROM_COMMENT,
+                _replies_page_variables(comment_id, limit, cursor),
+            ),
+            "getRepliesFromComment",
         )
 
     async def get_replies_from_comment_pages(
         self,
         comment_id: int,
         *,
-        limit: int = 3,
+        limit: int = REPLIES_LIMIT,
         max_pages: Optional[int] = None,
         cursor: Optional[int] = None,
     ) -> AsyncIterator[List[Comment]]:
         pages = 0
         while max_pages is None or pages < max_pages:
-            items = await self.get_replies_from_comment(comment_id, limit=limit, cursor=cursor)
+            items = _comments_from_data(
+                await self._request(
+                    Q_GET_REPLIES_FROM_COMMENT,
+                    _replies_page_variables(comment_id, limit, cursor),
+                ),
+                "getRepliesFromComment",
+            )
             pages += 1
             yield items
             if len(items) < int(limit):
@@ -267,15 +294,9 @@ class AsyncCommentOps:
                     return out
         return out
 
-    async def create_comment(self, post_ref: Any, content: str) -> CreatedComment:
+    async def create_comment(self, post_ref: PostRef, content: str) -> CreatedComment:
         self._require_token()
-        if isinstance(post_ref, str):
-            link = await self.resolve_link(post_ref)
-            if link is None or link.post is None or link.post.id is None:
-                raise _post_id_error(post_ref)
-            post_id = int(link.post.id)
-        else:
-            post_id = _post_id_from_ref(post_ref)
+        post_id = await self._resolve_post_id(post_ref)
         data = await self._request(
             Q_CREATE_COMMENT, {"content": content, "post_id": post_id}, is_mutation=True
         )

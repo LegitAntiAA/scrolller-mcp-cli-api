@@ -8,6 +8,7 @@ official agent routes and the upload helper go through ``httpx.MockTransport``
 from __future__ import annotations
 
 import json
+import os
 from typing import Any, Callable, Dict, List, Optional
 
 import httpx
@@ -33,7 +34,7 @@ AUTH_REQUIRED_MESSAGE_FRAGMENT = "Authentication required"
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep SCROLLLER_* env overrides from leaking into the tests."""
-    for name in list(__import__("os").environ):
+    for name in list(os.environ):
         if name.startswith("SCROLLLER_"):
             monkeypatch.delenv(name, raising=False)
 
@@ -147,9 +148,9 @@ def _search_row(i: int) -> Dict[str, Any]:
 
 def test_discover_pagination_passes_iterators_byte_exact(tmp_path):
     pages = [
-        {"iterator": "A++B", "items": [_subreddit_card(1)]},
-        {"iterator": "x;y", "items": [_subreddit_card(2)]},
-        {"iterator": None, "items": [_subreddit_card(3)]},
+        {"discoverFilteredSubreddits": {"iterator": "A++B", "items": [_subreddit_card(1)]}},
+        {"discoverFilteredSubreddits": {"iterator": "x;y", "items": [_subreddit_card(2)]}},
+        {"discoverFilteredSubreddits": {"iterator": None, "items": [_subreddit_card(3)]}},
     ]
     client = make_sync_client(tmp_path, [dict(p) for p in pages])
     collected = [page.iterator for page in client.discover_pages(max_pages=5)]
@@ -178,8 +179,8 @@ def test_discover_defaults_nsfw_from_client_and_allows_override(tmp_path):
 
 def test_list_discover_stops_at_limit_across_pages(tmp_path):
     pages = [
-        {"iterator": "p2", "items": [_subreddit_card(1), _subreddit_card(2)]},
-        {"iterator": None, "items": [_subreddit_card(3), _subreddit_card(4)]},
+        {"discoverFilteredSubreddits": {"iterator": "p2", "items": [_subreddit_card(1), _subreddit_card(2)]}},
+        {"discoverFilteredSubreddits": {"iterator": None, "items": [_subreddit_card(3), _subreddit_card(4)]}},
     ]
     client = make_sync_client(tmp_path, [dict(p) for p in pages])
     items = client.list_discover(limit=3)
@@ -225,7 +226,9 @@ def test_subreddit_feed_parses_children_iterator_byte_exact(tmp_path):
 
 
 def test_subreddit_children_passes_nsfw(tmp_path):
-    client = make_sync_client(tmp_path, [{"iterator": None, "items": [_post(1)]}])
+    client = make_sync_client(
+        tmp_path, [{"getSubredditChildren": {"iterator": None, "items": [_post(1)]}}]
+    )
     page = client.subreddit_children(42, limit=50, nsfw="NSFW")
     assert page.items[0].id == 1
     variables = client._transport.calls[0]["variables"]
@@ -234,21 +237,41 @@ def test_subreddit_children_passes_nsfw(tmp_path):
 
 
 def test_search_subreddits_page_index_auto_increment(tmp_path):
-    full = [_search_row(i) for i in range(3)]
+    page_a = [_search_row(i) for i in range(3)]
+    page_b = [_search_row(i) for i in range(10, 13)]
+    short = [_search_row(9)]
     client = make_sync_client(
         tmp_path,
         [
-            {"searchSubreddits": list(full)},
-            {"searchSubreddits": list(full)},
-            {"searchSubreddits": [_search_row(9)]},  # short page → stop
+            {"searchSubreddits": list(page_a)},
+            {"searchSubreddits": list(page_b)},
+            {"searchSubreddits": list(short)},  # short page → stop
         ],
     )
     pages = list(client.search_subreddits_pages("car", limit=3, max_pages=5))
     assert len(pages) == 3
     indexes = [call["variables"]["pageIndex"] for call in client._transport.calls]
     assert indexes == [0, 1, 2]
-    items = client.list_search_subreddits("car", limit=4, max_pages=5)
-    assert [item.id for item in items] == [0, 1, 2, 0]
+
+
+def test_list_search_subreddits_auto_pages_until_limit(tmp_path):
+    # The list_* helper pages with the DEFAULT query page size (50) and stops
+    # at the collection limit; full pages keep the pageIndex incrementing.
+    page_a = [_search_row(i) for i in range(50)]
+    page_b = [_search_row(i) for i in range(50, 100)]
+    page_c = [_search_row(9)]
+    client = make_sync_client(
+        tmp_path,
+        [
+            {"searchSubreddits": page_a},
+            {"searchSubreddits": page_b},
+            {"searchSubreddits": page_c},
+        ],
+    )
+    items = client.list_search_subreddits("car", limit=60, max_pages=5)
+    assert [item.id for item in items] == list(range(60))
+    indexes = [call["variables"]["pageIndex"] for call in client._transport.calls]
+    assert indexes == [0, 1]
 
 
 def test_search_subreddits_is_nsfw_defaults_follow_client(tmp_path):
@@ -312,6 +335,29 @@ def test_get_post_parses_selection(tmp_path):
     assert post.tag_links[0].label == "cats"
     assert post.media_sources[0].url == "https://i.sc/7.jpg"
     assert client._transport.calls[0]["variables"] == {"url": "/r/aww/post/7"}
+
+
+def test_album_content_list_shape_parses(tmp_path):
+    # Live responses (T7-phase2 smoke, /r/aww) return albumContent as a LIST
+    # of {mediaSources: [...]} groups, not the SDL dict shape.
+    from scrolller._models import post_from_raw
+
+    post = post_from_raw(
+        {
+            "id": 65390128,
+            "albumContent": [
+                {"mediaSources": [{"url": "https://i.sc/a.jpg", "width": 10}]},
+                {"mediaSources": [{"url": "https://i.sc/b.jpg", "width": 20}]},
+            ],
+        }
+    )
+    assert [s.url for s in post.album_content or []] == ["https://i.sc/a.jpg", "https://i.sc/b.jpg"]
+    # SDL dict shape still parses.
+    post2 = post_from_raw({"albumContent": {"mediaSources": [{"url": "https://i.sc/c.jpg"}]}})
+    assert [s.url for s in post2.album_content or []] == ["https://i.sc/c.jpg"]
+    # None / garbage shapes stay empty.
+    assert post_from_raw({"albumContent": None}).album_content == []
+    assert post_from_raw({"albumContent": "junk"}).album_content == []
 
 
 def test_get_user_posts_pages_iterator(tmp_path):
@@ -392,11 +438,16 @@ def test_comments_cursor_chaining_byte_exact_ids(tmp_path):
     page2 = [_comment(i) for i in range(16, 20)]  # short page → stop
     client = make_sync_client(
         tmp_path,
-        [{"getComments": page1}, {"getComments": page2}],
+        [
+            {"getComments": page1},
+            {"getComments": page2},
+            {"getComments": page1},  # responses for the list_comments call
+            {"getComments": page2},
+        ],
     )
     pages = list(client.get_comments_pages(77, max_pages=5))
     assert len(pages) == 2
-    paginations = [call["variables"]["pagination"] for call in client._transport.calls]
+    paginations = [call["variables"]["pagination"] for call in client._transport.calls[:2]]
     assert paginations[0] == {"limit": 15}
     assert paginations[1] == {"limit": 15, "cursor": 15}  # last id of page 1
     all_comments = client.list_comments(77, max_pages=5)
@@ -418,16 +469,101 @@ def test_replies_from_comment_page_size_3(tmp_path):
 def test_comment_writes_fail_fast_and_use_mutations(tmp_path):
     client = make_sync_client(
         tmp_path,
-        [{"createComment": {"id": 99, "postCommentsCount": 4}}, {"likeComment": True}],
+        [
+            {"createComment": {"id": 99, "postCommentsCount": 4}},
+            {"createCommentReply": {"id": 100, "postCommentsRepliesCount": 1}},
+            {"likeComment": True},
+        ],
         token="tok",
     )
     created = client.create_comment(77, "hi")
     assert created.id == 99
-    assert client._transport.calls[0]["is_mutation"] is True
     reply = client.create_comment_reply(99, "nested")
-    assert reply.id is None  # stub returned {} for the second call? no — list consumed
+    assert reply.id == 100
     client.like_comment(99)
+    assert client._transport.calls[0]["is_mutation"] is True
     assert client._transport.calls[1]["is_mutation"] is True
+
+
+def test_post_ref_resolution_accepts_numeric_string_without_network_roundtrip(tmp_path):
+    client = make_sync_client(
+        tmp_path, [{"getComments": [_comment(1)]}], token="tok"
+    )
+    comments = client.get_comments("12345")
+    assert comments[0].id == 1
+    assert len(client._transport.calls) == 1  # no resolveLink call
+    assert client._transport.calls[0]["variables"]["post_id"] == 12345
+
+
+def test_post_ref_relative_url_made_absolute_for_resolver(tmp_path):
+    # Live-verified in the CLI/MCP runs: ResolveScrolllerLinks only accepts
+    # absolute https://scrolller.com/... URLs while feed post urls are relative.
+    client = make_sync_client(
+        tmp_path,
+        [
+            {"resolveScrolllerLinks": [{"url": "/r/aww/post/7", "type": "POST", "post": _post(7)}]},
+            {"getComments": [_comment(1)]},
+            {"getComments": []},
+        ],
+        token="tok",
+    )
+    pages = list(client.get_comments_pages("/r/aww/post/7", limit=1, max_pages=5))
+    assert len(pages) == 2
+    resolve_variables = client._transport.calls[0]["variables"]
+    assert resolve_variables["urls"] == ["https://scrolller.com/r/aww/post/7"]
+    assert client._transport.calls[1]["variables"]["post_id"] == 7  # resolved ONCE
+    assert client._transport.calls[2]["variables"]["pagination"]["cursor"] == 1
+
+
+def test_post_ref_absolute_url_and_unresolvable(tmp_path):
+    client = make_sync_client(
+        tmp_path,
+        [
+            {"resolveScrolllerLinks": [{"url": "https://scrolller.com/x", "type": "POST", "post": _post(3)}]},
+            {"getComments": [_comment(1)]},
+        ],
+        token="tok",
+    )
+    assert client.get_comments("https://scrolller.com/x", limit=1)[0].id == 1
+    # Already-absolute URLs pass through untouched.
+    assert client._transport.calls[0]["variables"]["urls"] == ["https://scrolller.com/x"]
+
+    client2 = make_sync_client(tmp_path, [{"resolveScrolllerLinks": []}], token="tok")
+    from scrolller._errors import NotFoundError
+
+    with pytest.raises(NotFoundError):
+        client2.get_comments("/r/aww/post/404")
+    assert client2._transport.calls[0]["variables"]["urls"] == ["https://scrolller.com/r/aww/post/404"]
+
+
+def test_create_comment_numeric_string_ref(tmp_path):
+    client = make_sync_client(tmp_path, [{"createComment": {"id": 5}}], token="tok")
+    created = client.create_comment("42", "hi")
+    assert created.id == 5
+    assert client._transport.calls[0]["variables"]["post_id"] == 42
+
+
+def test_related_relative_url_made_absolute(tmp_path):
+    client = make_sync_client(
+        tmp_path,
+        [
+            {"resolveScrolllerLinks": [{"url": "/r/aww/post/7", "type": "POST", "post": _post(7)}]},
+            {"getPostRecommendations": {"subreddits": [{"subredditUrl": "/r/cats"}]}},
+        ],
+    )
+    assert client.related("/r/aww/post/7") == ["/r/cats"]
+    assert client._transport.calls[0]["variables"]["urls"] == ["https://scrolller.com/r/aww/post/7"]
+    assert client._transport.calls[1]["variables"]["postId"] == 7
+
+
+def test_to_absolute_url_unit():
+    from scrolller._ops_base import to_absolute_url
+
+    assert to_absolute_url("/corvette-c5") == "https://scrolller.com/corvette-c5"
+    assert to_absolute_url("https://scrolller.com/x") == "https://scrolller.com/x"
+    assert to_absolute_url("http://example.com/y") == "http://example.com/y"  # no-op, TS parity
+    assert to_absolute_url("12345") == "12345"  # bare ids untouched
+    assert to_absolute_url("aww") == "aww"  # not path-like: untouched (resolver decides)
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +639,7 @@ def test_auth_fail_fast_without_token(tmp_path, index):
 
 def test_auth_unlocked_with_token(tmp_path):
     client = make_sync_client(tmp_path, [{"addFavorite": True}], token="tok")
-    assert client.like("/r/aww/post/1") is True
+    assert client.like("/r/aww/post/1") == {"addFavorite": True}
     assert client._transport.calls[0]["token"] == "tok"
     # get_plans is PUBLIC (T1 §2: PlanQuery works with authorization null).
     plans_client = make_sync_client(tmp_path, [{"subscription_plans": []}])
@@ -623,10 +759,19 @@ def test_is_favorite_and_repost_use_url_mutations(tmp_path):
 def test_notifications_numeric_page(tmp_path):
     page1 = [{"id": i, "title": f"n{i}"} for i in range(1, 31)]
     page2 = [{"id": 31, "title": "n31"}]
-    client = make_sync_client(tmp_path, [page1, page2], token="tok")
+    client = make_sync_client(
+        tmp_path,
+        [
+            {"getNotifications": page1},
+            {"getNotifications": page2},
+            {"getNotifications": page1},  # responses for list_notifications
+            {"getNotifications": page2},
+        ],
+        token="tok",
+    )
     pages = list(client.get_notifications_pages(limit=30, max_pages=5))
     assert len(pages) == 2
-    pagination = [call["variables"]["data"]["pagination"] for call in client._transport.calls]
+    pagination = [call["variables"]["data"]["pagination"] for call in client._transport.calls[:2]]
     assert pagination == [{"page": 1, "limit": 30}, {"page": 2, "limit": 30}]
     items = client.list_notifications(limit=35, max_pages=5)
     assert len(items) == 31
@@ -660,24 +805,20 @@ def test_conversations_next_cursor_chain(tmp_path):
 
 
 def test_messages_numeric_page_and_conversation_ref(tmp_path):
-    conversation = make_sync_client(  # throwaway client only to build the object
-        tmp_path,
-        [{"getConversations": {"items": [{"user": {"id": 9}}], "next_cursor": None}}],
-    )._request.__self__  # not used — build the object directly below
     from scrolller._models import conversation_from_raw
 
     conv = conversation_from_raw({"user": {"id": 9}})
     client = make_sync_client(
         tmp_path,
         [
-            {"getMessages": {"items": [{"id": 1, "content": "hi"}], "total": 40}},
-            {"getMessages": {"items": [{"id": i, "content": "m"} for i in range(2, 22)], "total": 40}},
-            {"getMessages": {"items": [{"id": 22, "content": "tail"}], "total": 40}},
+            {"getMessages": {"items": [{"id": i} for i in range(1, 21)], "total": 60}},
+            {"getMessages": {"items": [{"id": i} for i in range(21, 41)], "total": 60}},
+            {"getMessages": {"items": [{"id": 41, "content": "tail"}], "total": 60}},
         ],
         token="tok",
     )
     pages = list(client.get_messages_pages(conv, limit=20, max_pages=5))
-    # page 3 is short (< limit) → stop, even though 20*2 < total=40.
+    # page 3 is short (< limit) → stop, even though 20*2 < total=60.
     assert len(pages) == 3
     datas = [call["variables"]["data"] for call in client._transport.calls]
     assert datas[0] == {"other_user_id": 9, "limit": 20, "page": 1}
@@ -714,7 +855,9 @@ def test_send_message_and_unread_count(tmp_path):
     assert client.get_total_unread_count() == 3
     client.mark_messages_as_read(5)
     assert client._transport.calls[2]["variables"] == {"sender_id": 5}
-    assert all(call["is_mutation"] for call in client._transport.calls if call["query"] != "query GetTotalUnreadCount { getTotalUnreadCount }") or True
+    assert client._transport.calls[0]["is_mutation"] is True  # sendMessage
+    assert client._transport.calls[1]["is_mutation"] is False  # getTotalUnreadCount query
+    assert client._transport.calls[2]["is_mutation"] is True  # markMessagesAsRead
 
 
 def test_conversation_ref_requires_numeric_user(tmp_path):
@@ -801,7 +944,9 @@ def test_agent_routes_url_shaping(tmp_path):
     assert seen[0].url.host == "scrolller.com"
     assert seen[0].url.path == "/agent/subreddit/carporn"
     assert seen[0].url.params["limit"] == "5"
-    assert seen[1].url.path == "/agent/content/carporn%2F123"
+    # Slugs with slashes are percent-encoded on the wire (httpx decodes them
+    # in .path, so check raw_path).
+    assert seen[1].url.raw_path == b"/agent/content/carporn%2F123"
     assert "limit" not in seen[1].url.params
     assert seen[2].url.path == "/agent/collection/123"
     assert seen[2].url.params["limit"] == "2"
@@ -949,7 +1094,7 @@ async def test_async_conversations_and_agent(tmp_path):
         seen.append(request)
         return httpx.Response(200, json={"ok": True})
 
-    client._transport.http_client = httpx.Client(
+    client._transport.http_client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), follow_redirects=True
     )
     result = await client.agent_subreddit("aww")

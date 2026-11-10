@@ -14,12 +14,18 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional, Tuple
 
 from scrolller._config import default_config_path, load_config_file, save_config_file
-from scrolller._errors import AuthRequiredError, NetworkError, NotFoundError, RateLimitedError
+from scrolller._errors import (
+    AuthRequiredError,
+    NetworkError,
+    NotFoundError,
+    RateLimitedError,
+    ScrolllerError,
+)
 from scrolller._graphql import enum_value
 from scrolller._transport import DEFAULT_USER_AGENT, ORIGIN, AsyncTransport, Transport
 from scrolller._types import AGENT_BASE_URL, ClientOptions
 
-__all__ = ["AsyncClientOpsBase", "ClientOpsBase"]
+__all__ = ["AsyncClientOpsBase", "ClientOpsBase", "to_absolute_url"]
 
 # CONTRACT.md §5.1 — fail-fast message for 🔒 operations without a token.
 AUTH_REQUIRED_MESSAGE = (
@@ -28,6 +34,27 @@ AUTH_REQUIRED_MESSAGE = (
 )
 
 _FileLike = Tuple[str, bytes]
+
+
+def to_absolute_url(value: str) -> str:
+    """Make a post/subreddit ref absolute for ``ResolveScrolllerLinks``.
+
+    The resolver only accepts full ``https://scrolller.com/...`` URLs while
+    feed post objects carry relative paths like ``"/corvette-..."`` (live
+    verified in the CLI/MCP runs). No-op for absolute URLs and bare ids.
+    """
+    if value.startswith("http://") or value.startswith("https://"):
+        return value
+    if value.startswith("/") and not value.startswith("//"):
+        return "https://scrolller.com" + value
+    return value
+
+
+def _post_id_from_link(link: Any, ref: str) -> int:
+    post_id = link.post.id if link is not None and link.post is not None else None
+    if isinstance(post_id, int) and not isinstance(post_id, bool):
+        return post_id
+    raise NotFoundError(f"cannot resolve post id from ref {ref!r}")
 
 
 def _agent_headers(options: ClientOptions) -> Dict[str, str]:
@@ -87,6 +114,27 @@ class ClientOpsBase:
         if nsfw is None:
             return self._options.nsfw.value
         return enum_value(nsfw)
+
+    def _resolve_post_id(self, ref: Any) -> int:
+        """Resolve a post ref (int, numeric string, or scrolller URL) to an id.
+
+        URLs go through :meth:`resolve_link` with :func:`to_absolute_url`
+        applied (the resolver rejects relative paths). Raises NotFoundError
+        when the URL does not resolve to a post.
+        """
+        if isinstance(ref, bool):
+            raise ScrolllerError("post ref must be a post id (int), numeric string, or scrolller URL")
+        if isinstance(ref, int):
+            return ref
+        if isinstance(ref, str):
+            trimmed = ref.strip()
+            if trimmed.isdigit():
+                return int(trimmed)
+            if not trimmed:
+                raise ScrolllerError("post ref must be a post id (int), numeric string, or scrolller URL")
+            link = self.resolve_link(to_absolute_url(trimmed))
+            return _post_id_from_link(link, trimmed)
+        raise ScrolllerError("post ref must be a post id (int), numeric string, or scrolller URL")
 
     def _persist_config_values(self, options: ClientOptions, values: Mapping[str, Any]) -> None:
         """Write several keys back to the config file, preserving the rest."""
@@ -186,6 +234,27 @@ class AsyncClientOpsBase:
         if nsfw is None:
             return self._options.nsfw.value
         return enum_value(nsfw)
+
+    async def _resolve_post_id(self, ref: Any) -> int:
+        """Resolve a post ref (int, numeric string, or scrolller URL) to an id.
+
+        URLs go through :meth:`resolve_link` with :func:`to_absolute_url`
+        applied (the resolver rejects relative paths). Raises NotFoundError
+        when the URL does not resolve to a post.
+        """
+        if isinstance(ref, bool):
+            raise ScrolllerError("post ref must be a post id (int), numeric string, or scrolller URL")
+        if isinstance(ref, int):
+            return ref
+        if isinstance(ref, str):
+            trimmed = ref.strip()
+            if trimmed.isdigit():
+                return int(trimmed)
+            if not trimmed:
+                raise ScrolllerError("post ref must be a post id (int), numeric string, or scrolller URL")
+            link = await self.resolve_link(to_absolute_url(trimmed))
+            return _post_id_from_link(link, trimmed)
+        raise ScrolllerError("post ref must be a post id (int), numeric string, or scrolller URL")
 
     def _persist_config_values(self, options: ClientOptions, values: Mapping[str, Any]) -> None:
         """Write several keys back to the config file, preserving the rest."""

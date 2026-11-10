@@ -1,115 +1,138 @@
-"""Live smoke test for the Scrolller transport (T7-phase1).
+"""Live smoke test for the Scrolller operation layer (T7-phase2).
 
 Usage: ``python -m scrolller.smoke``
 
-Runs the verbatim discover query from RESEARCH.md §3 with limit 2 and prints
-the page iterator, the first subreddit title and the first post's best media
-URL. Exits non-zero on any failure.
+Exercises the real PUBLIC operations against the live API, one printed line
+per operation (CONTRACT.md §6; no authenticated calls):
+
+1. discover (page 1)            — DiscoverFilteredSubredditsQuery
+2. subreddit feed /r/aww        — SubredditQuery
+3. search_subreddits("car")     — SearchSubredditsQuery
+4. get_post of a discovered post — SubredditPostQuery
+5. get_comments of that post    — getCommentsQuery (plain array)
+6. agent_subreddit("carporn")   — official GET /agent/* route
+7. auth fail-fast: like() without a token must raise
+   ScrolllerAuthRequiredError BEFORE any network call (§5.1)
+
+Exits non-zero on any failure.
 """
 
 from __future__ import annotations
 
 import sys
-from typing import Any, Dict
+import time
+from typing import Any, Callable, TypeVar
 
-from scrolller._download import best_media_source
-from scrolller._errors import ScrolllerError
+from scrolller._errors import AuthRequiredError, ScrolllerError
 from scrolller.client import ScrolllerClient
 
-DISCOVER_QUERY = """\
-query DiscoverFilteredSubredditsQuery(
-  $filter: GalleryFilter
-  $sortBy: GallerySortBy
-  $limit: Int!
-  $childLimit: Int!
-  $iterator: String
-  $includeFilters: [Int!]
-  $excludeFilters: [Int!]
-  $nsfw: NsfwFilter
-) {
-  discoverFilteredSubreddits(data: {
-    nsfw: $nsfw
-    filter: $filter
-    limit: $limit
-    childLimit: $childLimit
-    iterator: $iterator
-    includeFilters: $includeFilters
-    excludeFilters: $excludeFilters
-    sortBy: $sortBy
-  }) {
-    iterator
-    recommendationType
-    hasV1Recommendations
-    hasV2Recommendations
-    items {            # subreddit cards
-      __typename id url title secondaryTitle description createdAt isNsfw
-      subscribers isComplete itemCount videoCount pictureCount albumCount
-      isPaid username tags
-      banner { url width height isOptimized }
-      isFollowing
-      moreSubreddits { id url title isPaid isNsfw previewUrl }
-      children {       # posts inside the subreddit card
-        iterator
-        items {        # post/media objects
-          __typename id url reddit_posted_by subredditId subredditTitle
-          subredditUrl subredditIsFollowing redditPath isNsfw hasAudio
-          fullLengthSource gfycatSource redgifsSource ownerAvatar username
-          displayName userType favoriteCount repostCount isPaid tags
-          commentsCount commentsRepliesCount duration createdAt
-          albumContent { mediaSources { url width height isOptimized type } }
-          isFavorite isReposted
-          mediaSources { url width height isOptimized type }
-          blurredMediaSources { url width height isOptimized type }
-        }
-      }
-    }
-  }
-}"""
+T = TypeVar("T")
+
+
+def _with_retry(action: Callable[[], T], attempts: int = 2, delay_s: float = 2.0) -> T:
+    """Retry once on failure — the API can soft-null under rapid requests."""
+    last: Any = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return action()
+        except ScrolllerError as exc:
+            last = exc
+            if attempt < attempts:
+                time.sleep(delay_s)
+    raise last
+
+
+def _safe(value: Any) -> str:
+    """ASCII-safe rendering for Windows consoles (cp1251 cannot map emoji in
+    live post titles — a print() crash must never fail the smoke run)."""
+    return str(value).encode("ascii", "backslashreplace").decode("ascii")
 
 
 def main() -> int:
-    # Nullable variables may be passed as None freely — the transport omits
-    # None-valued keys from the POST body (sending explicit nulls for
-    # $filter/$excludeFilters/$includeFilters makes the server answer
-    # INTERNAL_SERVER_ERROR; verified live, see _transport._build_payload).
-    variables: Dict[str, Any] = {
-        "filter": None,
-        "sortBy": "HOT",
-        "limit": 2,
-        "childLimit": 2,
-        "iterator": None,
-        "includeFilters": [],
-        "excludeFilters": None,
-        "nsfw": "SFW",
-    }
     try:
         client = ScrolllerClient()
-        data = client.request(DISCOVER_QUERY, variables)
+    except ScrolllerError as exc:
+        print(f"smoke FAILED: client init [{exc.kind.value if exc.kind else 'UNKNOWN'}] {exc}", file=sys.stderr)
+        return 1
+    # The smoke run is strictly anonymous (no authenticated live calls): even
+    # if the user's config carries a token, drop it for this client. Step 7
+    # then deterministically proves the §5.1 fail-fast.
+    client._options.token = None
+
+    try:
+        # 1. discover feed (page 1; SFW default)
+        page = _with_retry(lambda: client.discover(limit=2, child_limit=2))
+        first_sub = page.items[0] if page.items else None
+        print(
+            "discover p1: iterator={!r} subreddits={} first={!r}".format(
+                page.iterator, len(page.items), _safe(first_sub.title) if first_sub else None
+            )
+        )
+        if not first_sub:
+            raise ScrolllerError("discover returned no subreddit items")
+
+        # 2. subreddit feed (SubredditQuery)
+        feed = _with_retry(lambda: client.subreddit_feed("/r/aww", limit=10))
+        feed_posts = feed.children or []
+        print(
+            "subreddit /r/aww: id={} title={!r} children_iterator={!r} posts={}".format(
+                feed.id, _safe(feed.title), feed.children_iterator, len(feed_posts)
+            )
+        )
+
+        # 3. subreddit search (pageIndex family)
+        results = client.search_subreddits("car", limit=5)
+        print(
+            "search_subreddits('car'): results={} first={!r}".format(
+                len(results), results[0].url if results else None
+            )
+        )
+
+        # 4. get_post of a discovered post (post url passed through verbatim;
+        #    prefer the most-commented feed post, fall back to discover cards)
+        candidates = sorted(
+            (p for p in feed_posts if p.url), key=lambda p: p.comments_count or 0, reverse=True
+        ) or [p for card in page.items for p in (card.children or []) if p.url]
+        post_url = candidates[0].url if candidates else None
+        if not post_url:
+            raise ScrolllerError("no discovered post url for get_post")
+        post = _with_retry(lambda: client.get_post(post_url))
+        print(
+            "get_post: id={} title={!r} sources={} comments={}".format(
+                post.id, _safe(post.title), len(post.media_sources or []), post.comments_count
+            )
+        )
+        if post.id is None:
+            raise ScrolllerError(f"getPost returned no id for {post_url!r}")
+
+        # 5. comments of that post (plain-array reader). A live quirk worth
+        #    noting: the scrolller-NATIVE comment base is sparse — most posts
+        #    report commentsCount 0 and the reader legitimately returns an
+        #    empty plain array, which is the documented response shape.
+        comments = client.get_comments(post.id, limit=15)
+        print(
+            "get_comments: count={} first_id={}".format(
+                len(comments), comments[0].id if comments else None
+            )
+        )
+
+        # 6. official agent route (embed-safe JSON, ~1 req/s rate limit)
+        agent = client.agent_subreddit("carporn")
+        print("agent_subreddit('carporn'): keys={}".format(sorted(agent.keys())[:6]))
+
+        # 7. AUTH fail-fast (no token configured — must raise before network)
+        try:
+            client.like(post.url or post_url)
+        except AuthRequiredError:
+            print("auth fail-fast: like() without token raised ScrolllerAuthRequiredError OK")
+        else:
+            raise ScrolllerError("like() without token did NOT raise ScrolllerAuthRequiredError")
     except ScrolllerError as exc:
         kind = exc.kind.value if exc.kind is not None else "UNKNOWN"
         print(f"smoke FAILED: [{kind}] {exc}", file=sys.stderr)
         return 1
-
-    feed = (data or {}).get("discoverFilteredSubreddits") or {}
-    print("iterator:", feed.get("iterator"))
-
-    items = feed.get("items") or []
-    if not items:
-        print("smoke FAILED: feed returned no subreddit items", file=sys.stderr)
-        return 1
-    first = items[0]
-    print("first subreddit title:", first.get("title"))
-
-    posts = ((first.get("children") or {}).get("items")) or []
-    if not posts:
-        print("smoke FAILED: first subreddit card embeds no posts", file=sys.stderr)
-        return 1
-    try:
-        source = best_media_source(posts[0])
-    except ScrolllerError as exc:
-        print(f"smoke FAILED: first post has no media ({exc})", file=sys.stderr)
-        return 1
-    print("first post media URL:", source.get("url"))
+    finally:
+        client.close()
     return 0
 
 

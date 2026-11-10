@@ -10,7 +10,6 @@ from __future__ import annotations
 import urllib.parse
 from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Sequence
 
-from scrolller._errors import ScrolllerError
 from scrolller._graphql import (
     Q_GET_POST,
     Q_GET_POST_RECOMMENDATIONS,
@@ -291,19 +290,10 @@ class PostOps:
         SDL: GetAllRecommendationsContent (getPostRecommendations) — the only
         recommendations document in T1-RESEARCH-FULL.md; no per-slug
         "discover" query exists there (CONTRACT.md row 28 is provisional).
-        ``ref`` is a numeric post id or a scrolller post URL (resolved via
-        :meth:`resolve_link` to obtain the id).
+        ``ref`` is a numeric post id, numeric string, or scrolller post URL
+        (relative paths are made absolute before resolving).
         """
-        post_id: Optional[int] = None
-        if isinstance(ref, int) and not isinstance(ref, bool):
-            post_id = ref
-        elif isinstance(ref, str):
-            link = self.resolve_link(ref)
-            if link is None or link.post is None or link.post.id is None:
-                raise ScrolllerError(f"cannot resolve a post id from {ref!r}")
-            post_id = link.post.id
-        else:
-            raise ScrolllerError("related() expects a post id (int) or a scrolller post URL")
+        post_id = self._resolve_post_id(ref)
         data = self._request(Q_GET_POST_RECOMMENDATIONS, {"postId": post_id})
         payload = (data or {}).get("getPostRecommendations") or {}
         return [
@@ -326,7 +316,7 @@ class PostOps:
     def agent_subreddit(self, slug: str, *, limit: Optional[int] = None) -> Dict[str, Any]:
         """``GET /agent/subreddit/{slug}`` — embed-safe JSON (no raw media)."""
         params = {"limit": int(limit)} if limit is not None else None
-        return self._agent_get("/agent/subreddit/" + urllib.parse.quote(str(slug)), params=params)
+        return self._agent_get("/agent/subreddit/" + urllib.parse.quote(str(slug), safe=""), params=params)
 
     def agent_content(self, slug: str, *, limit: Optional[int] = None) -> Dict[str, Any]:
         """``GET /agent/content/{slug}`` — embed-safe JSON (no raw media).
@@ -335,13 +325,13 @@ class PostOps:
         honors ``?limit=`` only on the subreddit/collection routes
         (RESEARCH.md §4b).
         """
-        return self._agent_get("/agent/content/" + urllib.parse.quote(str(slug)))
+        return self._agent_get("/agent/content/" + urllib.parse.quote(str(slug), safe=""))
 
     def agent_collection(self, collection_id: int, *, limit: Optional[int] = None) -> Dict[str, Any]:
         """``GET /agent/collection/{id}`` — embed-safe JSON (no raw media)."""
         params = {"limit": int(limit)} if limit is not None else None
         return self._agent_get(
-            "/agent/collection/" + urllib.parse.quote(str(int(collection_id))), params=params
+            "/agent/collection/" + urllib.parse.quote(str(int(collection_id)), safe=""), params=params
         )
 
 
@@ -560,16 +550,7 @@ class AsyncPostOps:
         return results[0] if results else None
 
     async def related(self, ref: Any) -> List[str]:
-        post_id: Optional[int] = None
-        if isinstance(ref, int) and not isinstance(ref, bool):
-            post_id = ref
-        elif isinstance(ref, str):
-            link = await self.resolve_link(ref)
-            if link is None or link.post is None or link.post.id is None:
-                raise ScrolllerError(f"cannot resolve a post id from {ref!r}")
-            post_id = link.post.id
-        else:
-            raise ScrolllerError("related() expects a post id (int) or a scrolller post URL")
+        post_id = await self._resolve_post_id(ref)
         data = await self._request(Q_GET_POST_RECOMMENDATIONS, {"postId": post_id})
         payload = (data or {}).get("getPostRecommendations") or {}
         return [
@@ -589,17 +570,17 @@ class AsyncPostOps:
     async def agent_subreddit(self, slug: str, *, limit: Optional[int] = None) -> Dict[str, Any]:
         params = {"limit": int(limit)} if limit is not None else None
         return await self._agent_get(
-            "/agent/subreddit/" + urllib.parse.quote(str(slug)), params=params
+            "/agent/subreddit/" + urllib.parse.quote(str(slug), safe=""), params=params
         )
 
     async def agent_content(self, slug: str, *, limit: Optional[int] = None) -> Dict[str, Any]:
         # ``limit`` is not sent on the content route (RESEARCH.md §4b).
-        return await self._agent_get("/agent/content/" + urllib.parse.quote(str(slug)))
+        return await self._agent_get("/agent/content/" + urllib.parse.quote(str(slug), safe=""))
 
     async def agent_collection(
         self, collection_id: int, *, limit: Optional[int] = None
     ) -> Dict[str, Any]:
         params = {"limit": int(limit)} if limit is not None else None
         return await self._agent_get(
-            "/agent/collection/" + urllib.parse.quote(str(int(collection_id))), params=params
+            "/agent/collection/" + urllib.parse.quote(str(int(collection_id)), safe=""), params=params
         )

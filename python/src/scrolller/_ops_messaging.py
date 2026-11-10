@@ -46,6 +46,13 @@ NotificationsFilter = Optional[str]  # bundle-inferred: "ALL" | "ARCHIVED" (T1 Â
 ConversationRef = Union[int, Conversation]  # other-user id or a conversations() row
 
 
+def _unwrap(data: Any, key: str) -> Any:
+    """Extract ``key`` from the GraphQL ``data`` object (``None`` when absent)."""
+    if isinstance(data, dict):
+        return data.get(key)
+    return None
+
+
 def _conversation_user_id(ref: ConversationRef) -> int:
     """Accept a conversation object (from ``get_conversations``) or a bare
     other-user id (parity with the TypeScript ``conversationUserId``)."""
@@ -83,7 +90,7 @@ class MessagingOps:
         data: Dict[str, Any] = {"pagination": {"page": int(page), "limit": int(limit)}}
         if filter is not None:
             data["filter"] = filter
-        payload = self._request(Q_GET_NOTIFICATIONS, {"data": data})
+        payload = _unwrap(self._request(Q_GET_NOTIFICATIONS, {"data": data}), "getNotifications")
         return [
             notification_from_raw(item)
             for item in (payload or [])
@@ -148,7 +155,7 @@ class MessagingOps:
         data: Dict[str, Any] = {"limit": int(limit)}
         if not is_exhausted_cursor(cursor):
             data["cursor"] = cursor
-        payload = self._request(Q_GET_CONVERSATIONS, {"data": data}) or {}
+        payload = _unwrap(self._request(Q_GET_CONVERSATIONS, {"data": data}), "getConversations") or {}
         return ConversationsPage(
             items=[
                 conversation_from_raw(item)
@@ -203,7 +210,7 @@ class MessagingOps:
         self._require_token()
         other_user_id = _conversation_user_id(conversation)
         variables = {"data": {"other_user_id": other_user_id, "limit": int(limit), "page": int(page)}}
-        payload = self._request(Q_GET_MESSAGES, variables) or {}
+        payload = _unwrap(self._request(Q_GET_MESSAGES, variables), "getMessages") or {}
         return MessagesPage(
             items=[
                 message_from_raw(item)
@@ -253,7 +260,7 @@ class MessagingOps:
         user's numeric id."""
         self._require_token()
         variables = {"data": {"receiver_id": int(receiver_id), "content": content}}
-        payload = self._request(Q_SEND_MESSAGE, variables, is_mutation=True)
+        payload = _unwrap(self._request(Q_SEND_MESSAGE, variables, is_mutation=True), "sendMessage")
         return message_from_raw(payload if isinstance(payload, dict) else {})
 
     def mark_messages_as_read(self, sender_id: int) -> Any:
@@ -264,7 +271,7 @@ class MessagingOps:
     def get_total_unread_count(self) -> Optional[int]:
         """Total unread message count (GetTotalUnreadCount); ``None`` if absent."""
         self._require_token()
-        payload = self._request(Q_GET_TOTAL_UNREAD_COUNT)
+        payload = _unwrap(self._request(Q_GET_TOTAL_UNREAD_COUNT), "getTotalUnreadCount")
         return payload if isinstance(payload, int) and not isinstance(payload, bool) else None
 
 
@@ -282,7 +289,7 @@ class AsyncMessagingOps:
         data: Dict[str, Any] = {"pagination": {"page": int(page), "limit": int(limit)}}
         if filter is not None:
             data["filter"] = filter
-        payload = await self._request(Q_GET_NOTIFICATIONS, {"data": data})
+        payload = _unwrap(await self._request(Q_GET_NOTIFICATIONS, {"data": data}), "getNotifications")
         return [
             notification_from_raw(item)
             for item in (payload or [])
@@ -344,7 +351,7 @@ class AsyncMessagingOps:
         data: Dict[str, Any] = {"limit": int(limit)}
         if not is_exhausted_cursor(cursor):
             data["cursor"] = cursor
-        payload = (await self._request(Q_GET_CONVERSATIONS, {"data": data})) or {}
+        payload = _unwrap(await self._request(Q_GET_CONVERSATIONS, {"data": data}), "getConversations") or {}
         return ConversationsPage(
             items=[
                 conversation_from_raw(item)
@@ -392,7 +399,7 @@ class AsyncMessagingOps:
         self._require_token()
         other_user_id = _conversation_user_id(conversation)
         variables = {"data": {"other_user_id": other_user_id, "limit": int(limit), "page": int(page)}}
-        payload = (await self._request(Q_GET_MESSAGES, variables)) or {}
+        payload = _unwrap(await self._request(Q_GET_MESSAGES, variables), "getMessages") or {}
         return MessagesPage(
             items=[
                 message_from_raw(item)
@@ -438,7 +445,7 @@ class AsyncMessagingOps:
     async def send_message(self, receiver_id: int, content: str) -> Message:
         self._require_token()
         variables = {"data": {"receiver_id": int(receiver_id), "content": content}}
-        payload = await self._request(Q_SEND_MESSAGE, variables, is_mutation=True)
+        payload = _unwrap(await self._request(Q_SEND_MESSAGE, variables, is_mutation=True), "sendMessage")
         return message_from_raw(payload if isinstance(payload, dict) else {})
 
     async def mark_messages_as_read(self, sender_id: int) -> Any:
@@ -449,5 +456,5 @@ class AsyncMessagingOps:
 
     async def get_total_unread_count(self) -> Optional[int]:
         self._require_token()
-        payload = await self._request(Q_GET_TOTAL_UNREAD_COUNT)
+        payload = _unwrap(await self._request(Q_GET_TOTAL_UNREAD_COUNT), "getTotalUnreadCount")
         return payload if isinstance(payload, int) and not isinstance(payload, bool) else None
