@@ -33,33 +33,37 @@ Scrolller hosts both regular (SFW) and NSFW media — **NSFW is opt-in everywher
 
 ## Install
 
-**Node.js ≥ 22.19** (CLI + MCP + TS library):
+**Node.js ≥ 22.19** required (CLI + MCP + TS library).
+
+### Option 1 — install from GitHub (works right now)
 
 ```bash
-# CLI
-npm install -g scrolller-cli
-scrolller --help
-
-# MCP server (your MCP client runs it; see below)
-npm install -g scrolller-mcp
-
-# TypeScript library
-npm install scrolller-core
-```
-
-**Python ≥ 3.9** (library):
-
-```bash
-pip install scrolller-py
-```
-
-From source:
-
-```bash
-git clone https://github.com/TODO-owner/scrolller-mcp-cli-api
+git clone https://github.com/LegitAntiAA/scrolller-mcp-cli-api
 cd scrolller-mcp-cli-api
-npm ci && npm run build          # Node packages
-pip install -e "python[dev]"     # Python package
+
+npm ci && npm run build          # build all Node packages
+
+npm link -w scrolller-cli        # now `scrolller` works in any terminal
+npm link -w scrolller-mcp        # now `scrolller-mcp` works (MCP clients run it)
+
+scrolller --help                 # 🎉
+```
+
+`npm link` creates global commands pointing at your local build — re-run `npm run build` after pulling updates. The Python library is optional:
+
+```bash
+pip install -e python            # Python ≥ 3.9 (add "python[dev]" for tests)
+```
+
+### Option 2 — install from the npm registry (once published)
+
+`npm install -g scrolller-cli` downloads the package from the **npm registry**, not GitHub — these commands work after the packages are published there:
+
+```bash
+npm install -g scrolller-cli     # CLI
+npm install -g scrolller-mcp     # MCP server
+npm install scrolller-core       # TypeScript library
+pip install scrolller-py         # Python ≥ 3.9 library
 ```
 
 ## CLI quickstart

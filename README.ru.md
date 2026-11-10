@@ -33,33 +33,37 @@
 
 ## Установка
 
-**Node.js ≥ 22.19** (CLI + MCP + TS-библиотека):
+Нужен **Node.js ≥ 22.19** (CLI + MCP + TS-библиотека).
+
+### Вариант 1 — установка с GitHub (работает уже сейчас)
 
 ```bash
-# CLI
-npm install -g scrolller-cli
-scrolller --help
-
-# MCP-сервер (запускается вашим MCP-клиентом; см. ниже)
-npm install -g scrolller-mcp
-
-# TypeScript-библиотека
-npm install scrolller-core
-```
-
-**Python ≥ 3.9** (библиотека):
-
-```bash
-pip install scrolller-py
-```
-
-Из исходников:
-
-```bash
-git clone https://github.com/TODO-owner/scrolller-mcp-cli-api
+git clone https://github.com/LegitAntiAA/scrolller-mcp-cli-api
 cd scrolller-mcp-cli-api
-npm ci && npm run build          # Node-пакеты
-pip install -e "python[dev]"     # Python-пакет
+
+npm ci && npm run build          # собрать все Node-пакеты
+
+npm link -w scrolller-cli        # теперь `scrolller` работает в любом терминале
+npm link -w scrolller-mcp        # теперь `scrolller-mcp` работает (его запускает MCP-клиент)
+
+scrolller --help                 # 🎉
+```
+
+`npm link` создаёт глобальные команды, указывающие на локальную сборку, — после `git pull` просто повтори `npm run build`. Python-библиотека опциональна:
+
+```bash
+pip install -e python            # Python ≥ 3.9 (для тестов — "python[dev]")
+```
+
+### Вариант 2 — установка из реестра npm (после публикации)
+
+`npm install -g scrolller-cli` скачивает пакет из **реестра npm**, а не с GitHub — эти команды заработают после публикации пакетов там:
+
+```bash
+npm install -g scrolller-cli     # CLI
+npm install -g scrolller-mcp     # MCP-сервер
+npm install scrolller-core       # TypeScript-библиотека
+pip install scrolller-py         # Python-библиотека (Python ≥ 3.9)
 ```
 
 ## CLI — краткий курс

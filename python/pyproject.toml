@@ -35,7 +35,7 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/TODO-owner/scrolller-mcp-cli-api"
+Repository = "https://github.com/LegitAntiAA/scrolller-mcp-cli-api"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
