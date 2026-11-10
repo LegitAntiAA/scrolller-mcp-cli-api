@@ -14,6 +14,9 @@ Operation matrix: §6. Ground-truth protocol details: `docs/api/RESEARCH.md`.
 - Timeout: default 30s (configurable).
 - All list-style queries paginate via opaque string `iterator` (pass previous response's `iterator`; first page → `null`).
 - NSFW: every read operation takes `nsfw: "SFW" | "NSFW" | "ALL"`; **default `SFW` everywhere** (site parity, safe default).
+- ⚠️ **Null-variable trap [verified]**: nullable list variables (`$filter`, `$includeFilters`, `$excludeFilters`) MUST be **omitted** from `variables` when unused — sending explicit `null` → HTTP 200 `INTERNAL_SERVER_ERROR`. `$iterator: null` is fine. All transports drop undefined/null optional filter variables automatically.
+- Enums [bundle-verified]: `GallerySortBy = RANDOM | TOP | HOT | NEW | CONTROVERSIAL`; `GalleryFilter = CATEGORY | SUBREDDIT | ALBUM | VIDEO | PICTURE | SOUND` (site UI maps: Photos=PICTURE, Videos=VIDEO, Videos with Sound=SOUND→VIDEO swap server-side); `NsfwFilter = SFW | NSFW | ALL`. Default sortBy on most feeds: RANDOM.
+- Search-family queries (`searchSubreddits`, `searchCollections`, `searchUsers`, `searchSubredditWithPreview`) paginate by **`pageIndex` (offset)**, not iterator. Comments paginate by `pagination: {limit, cursor}` where cursor = last comment id. Notifications/messages use numeric `page`. Full per-query table: `docs/api/T1-RESEARCH-FULL.md` §6.
 
 ## 2. Client surface (core libraries)
 
@@ -85,11 +88,11 @@ Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP 
 | 3 | Subreddit feed | `subredditFeed(name, opts)` | `scrolller subreddit <name>` | `subreddit_feed` | 🔓 | planned |
 | 4 | Subreddit autocomplete | `subredditSearch(q)` | `scrolller subreddit-search <q>` | `search_subreddits` | 🔓 | planned |
 | 5 | Post by URL/id | `getPost(ref)` | `scrolller post <url>` | `get_post` | 🔓 | planned |
-| 6 | Post comments | `getComments(ref)` | `scrolller comments <url>` | `read_comments` | 🔓 | planned |
-| 7 | Add comment | `addComment(ref, text)` | `scrolller comment <url> <text>` | `add_comment` | 🔒 | planned |
-| 8 | Like / unlike | `like(ref)` / `unlike(ref)` | `scrolller like/unlike <url>` | `like_post` / `unlike_post` | 🔒 | planned |
-| 9 | Repost / unrepost | `repost(ref)` / `unrepost(ref)` | `scrolller repost/unrepost` | `repost_post` / `unrepost_post` | 🔒 | planned |
-| 10 | Follow subreddit/user | `follow(target)` / `unfollow(target)` | `scrolller follow/unfollow` | `follow` / `unfollow` | 🔒 | planned |
+| 6 | Post comments [SDL-confirmed] | `getComments(ref, opts)` → `getComments(post_id, pagination{limit,cursor})`; replies via `getRepliesFromComment`; fields incl. `likes_count`, `replies_count`, `is_liked`, `user_account` | `scrolller comments <url>` | `read_comments` | 🔓 | confirmed |
+| 7 | Add comment [SDL-confirmed] | `addComment(ref, text)` → `createComment(content, post_id)`; replies `createCommentReply(content, parent_comment_id)`; also like/unlike/delete comment | `scrolller comment <url> <text>` (+ `comment-reply`, `comment-like`, `comment-delete`) | `add_comment` (+ `reply_comment`, `like_comment`, `delete_comment`) | 🔒 | confirmed |
+| 8 | Like / unlike [SDL-confirmed] | `like(ref)` / `unlike(ref)` → `addFavorite(url)` / `removeFavorite(url)` | `scrolller like/unlike <url>` | `like_post` / `unlike_post` | 🔒 | confirmed |
+| 9 | Repost / unrepost [SDL-confirmed] | `repost(ref)` / `unrepost(ref)` → `repostPost(url)` / `removeRepost(url)` | `scrolller repost/unrepost` | `repost_post` / `unrepost_post` | 🔒 | confirmed |
+| 10 | Follow subreddit/user [SDL-confirmed] | `follow(url)` / `unfollow(url)` (works for both `/r/...` and user URLs) | `scrolller follow/unfollow` | `follow` / `unfollow` | 🔒 | confirmed |
 | 11 | Collections list | `collections()` | `scrolller collection list` | `list_collections` | 🔒 | planned |
 | 12 | Collection by id | `collection(id)` | `scrolller collection get <id>` | `get_collection` | 🔒 | planned |
 | 13 | Create collection | `createCollection(name)` | `scrolller collection create <name>` | `create_collection` | 🔒 | planned |
@@ -107,10 +110,10 @@ Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP 
 | 23 | Proxy config | `setProxy(cfg)` | `scrolller proxy` (wizard) | `configure_proxy` / `clear_proxy` | — | planned |
 | 24 | Config get/set | `getConfig()`, `updateConfig(patch)` | `scrolller config get/set` | `get_config` / `update_config` | — | planned |
 | 25 | Leaderboard (top collections by likes) [UI-verified] | `leaderboard(opts)` | `scrolller leaderboard` | `get_leaderboard` | 🔓 | planned |
-| 26 | Register account [UI-verified form] | `register(username, email, password)` | `scrolller register` | `register` | 🔓 | provisional (SDL from T1) |
-| 27 | Report post | `report(ref, reason?)` | `scrolller report <url>` | `report_post` | 🔒 | provisional (SDL from T1) |
+| 26 | ~~Register account~~ | — | — | — | — | **NOT implementable**: `registerUser` requires reCAPTCHA v2 server-side (also forgetPassword, payments, phone/email verification). Documented in README; users register on the site, then `scrolller login`. |
+| 27 | Report post/comment/user [SDL-confirmed] | `report(ref, reason, details?)` → `reportPost(postId,...)` / `reportComment` / `reportUser` / `reportCollection` | `scrolller report <url>` | `report_post` | 🔒 | confirmed |
 | 28 | Related posts ("More like this") | `related(ref)` | `scrolller related <url>` | `get_related` | 🔓 | provisional (SDL from T1) |
-| 29 | Media-type/category filters on feeds [UI-verified] | opts on discover/search: `filter` (photos/videos/videos-with-sound), categories, hidden-content | `--photos --videos --with-sound --category` | same params | 🔓 | planned |
+| 29 | Media-type/category filters on feeds [SDL+UI-verified] | opts on discover/search: `filter` (PICTURE/VIDEO/SOUND), categories via `includeFilters`/`excludeFilters` (omit when unused — null trap), hidden-content | `--photos --videos --with-sound --category` | same params | 🔓 | confirmed |
 | 30 | Official agent routes (embed-safe, no raw media) [verified] | `agentSubreddit(slug)`, `agentContent(slug)`, `agentCollection(id)` | `scrolller agent <subreddit\|content\|collection>` | `agent_*` | 🔓 | verified |
 
 > ⚠️ Rows marked *planned* become *confirmed* only after T1 SDL extraction maps them to real server operations; operations the server does not support will be **removed** (not stubbed) and documented in README.
