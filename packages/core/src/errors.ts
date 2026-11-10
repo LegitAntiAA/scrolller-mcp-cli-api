@@ -14,6 +14,8 @@ export function errorMessage(error: unknown): string {
 export interface ScrolllerErrorInit {
   httpStatus?: number | null;
   details?: Record<string, unknown>;
+  /** Underlying cause (standard Error `cause`), preserved for diagnostics. */
+  cause?: unknown;
   /** Overrides the class default kind (rarely needed). */
   kind?: ErrorKind;
 }
@@ -24,7 +26,7 @@ export class ScrolllerError extends Error {
   readonly details: Record<string, unknown>;
 
   constructor(message: string, init: ScrolllerErrorInit = {}) {
-    super(message);
+    super(message, { cause: init.cause });
     this.name = this.constructor.name;
     this.kind = init.kind ?? null;
     this.httpStatus = init.httpStatus ?? null;

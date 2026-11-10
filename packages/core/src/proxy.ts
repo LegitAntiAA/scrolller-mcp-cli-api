@@ -150,17 +150,24 @@ export interface DispatcherOptions {
   timeoutMs?: number | null;
 }
 
-/** Build an undici Dispatcher for a ProxyConfig (CONTRACT.md §4). With null config this is a plain Agent carrying the requested timeouts. */
+/**
+ * Build an undici Dispatcher for a ProxyConfig (CONTRACT.md §4). With null config this is a plain Agent carrying the requested timeouts.
+ *
+ * HTTP/2 is disabled deliberately (`allowH2: false`): the media hosts negotiate H2, but
+ * long-lived H2 sessions (MCP servers) degrade mid-body with undici "terminated" errors
+ * (verified live — ClientHttp2Stream.onError → Fetch.terminate). HTTP/1.1 is deterministic.
+ */
 export function buildDispatcher(config: ProxyConfig | null, options: DispatcherOptions = {}): Dispatcher {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   try {
     if (config === null) {
-      return new Agent({ headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
+      return new Agent({ allowH2: false, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
     }
     if (config.type === "http" || config.type === "https") {
-      return new ProxyAgent({ uri: proxyUri(config), headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
+      return new ProxyAgent({ uri: proxyUri(config), allowH2: false, headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
     }
     return new Agent({
+      allowH2: false,
       headersTimeout: timeoutMs,
       bodyTimeout: timeoutMs,
       connect: socksConnect(config, timeoutMs),

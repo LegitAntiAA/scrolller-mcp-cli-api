@@ -94,6 +94,20 @@ export function toAbsoluteScrolllerUrl(value: string): string {
   return value;
 }
 
+/** Make a post ref usable by SubredditPostQuery (core getPost), which expects a
+ * RELATIVE path ("/slug") — the mirror image of toAbsoluteScrolllerUrl. Also
+ * un-mangles Git Bash MSYS path conversion ("C:/Program Files/Git/slug" → "/slug"). */
+export function toRelativePostPath(value: string): string {
+  const msysRoot = "C:/Program Files/Git/";
+  if (value.startsWith(msysRoot) && value.length > msysRoot.length) {
+    value = `/${value.slice(msysRoot.length)}`;
+  }
+  const m = /^https?:\/\/(?:www\.)?scrolller\.com(\/[^/?#]*)/i.exec(value);
+  if (m?.[1]) return m[1];
+  if (!value.startsWith("/") && !/^r\//i.test(value)) return `/${value}`;
+  return value;
+}
+
 /** Resolve a bare numeric id, post URL, or redditPath to a numeric post id. */
 export async function resolvePostRefToId(client: ScrolllerClient, ref: string | number): Promise<number> {
   if (typeof ref === "number") return ref;

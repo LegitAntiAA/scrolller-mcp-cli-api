@@ -9,7 +9,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { downloadToDir, NotFoundError, updateConfigFile, type ScrolllerClient } from "scrolller-core";
-import { collectQueryPosts, resolvePostRefToId, toAbsoluteScrolllerUrl, toolError, toolJson } from "./util.js";
+import { collectQueryPosts, resolvePostRefToId, toAbsoluteScrolllerUrl, toRelativePostPath, toolError, toolJson } from "./util.js";
 
 const NSFW = z.enum(["SFW", "NSFW", "ALL"]).optional().describe("Content filter; omit to use the configured default (SFW)");
 const VERBOSE = z.boolean().optional().describe("Return full results — do not trim media arrays to the best entry");
@@ -148,7 +148,7 @@ export function registerTools(server: McpServer, client: ScrolllerClient): void 
     },
     async (args) =>
       handle(async () => {
-        const post = await client.getPost(args.url);
+        const post = await client.getPost(toRelativePostPath(args.url));
         if (post === null || post === undefined) {
           return toolError(new NotFoundError(`server returned no post for ${JSON.stringify(args.url)} (the API can soft-null under rapid requests — retry shortly)`));
         }
@@ -563,7 +563,7 @@ export function registerTools(server: McpServer, client: ScrolllerClient): void 
         }
         let posts;
         if (args.post_url !== undefined) {
-          const post = await client.getPost(args.post_url);
+          const post = await client.getPost(toRelativePostPath(args.post_url));
           if (post === null || post === undefined) {
             return toolError(new NotFoundError(`server returned no post for ${JSON.stringify(args.post_url)} (the API can soft-null under rapid requests — retry shortly)`));
           }

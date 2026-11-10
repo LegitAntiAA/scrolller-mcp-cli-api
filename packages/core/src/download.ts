@@ -218,6 +218,13 @@ async function removeFileIfExists(filePath: string): Promise<void> {
   }
 }
 
+/** Optional low-level download diagnostics to stderr (safe for MCP stdio servers — only stdout carries the protocol). */
+function debugLog(what: string, url: string, error: unknown): void {
+  if (process.env["SCROLLLER_DEBUG_DOWNLOAD"] !== "1") return;
+  const err = error as Error | undefined;
+  console.error(`[scrolller-core:download] ${what} ${url}\n${err?.stack ?? String(error)}`);
+}
+
 async function streamToFile(
   dispatcher: Dispatcher,
   url: string,
@@ -228,7 +235,8 @@ async function streamToFile(
   try {
     response = await undiciFetch(url, { dispatcher, redirect: "follow" });
   } catch (error) {
-    throw new DownloadError(`download failed for ${url}: ${errorMessage(error)}`);
+    debugLog("fetch failed", url, error);
+    throw new DownloadError(`download failed for ${url}: ${errorMessage(error)}`, { cause: error });
   }
   const write = createWriteStream(filePath);
   let bytesDone = 0;
@@ -258,8 +266,9 @@ async function streamToFile(
   } catch (error) {
     write.destroy();
     await removeFileIfExists(filePath); // never leave a partial file behind
+    debugLog("stream failed", url, error);
     if (error instanceof NotFoundError || error instanceof DownloadError) throw error;
-    throw new DownloadError(`download failed for ${url}: ${errorMessage(error)}`);
+    throw new DownloadError(`download failed for ${url}: ${errorMessage(error)}`, { cause: error });
   }
 }
 
@@ -287,17 +296,9 @@ export async function downloadMedia(post: PostLike, targetDir: string, options: 
   }
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const ownedDispatcher = options.dispatcher ? null : buildDispatcher(null, { timeoutMs });
-  const dispatcher = options.dispatcher ?? ownedDispatcher!;
-  try {
-    const mainPath = resolveFreePath(target, stem, extensionOf(source, "jpg"));
-    await streamToFile(dispatcher, source.url, mainPath, { postId, onProgress: options.onProgress ?? null });
-    if (audio) {
-      const audioPath = resolveFreePath(target, `${stem}.audio`, extensionOf(audio, "mp3"));
-      await streamToFile(dispatcher, audio.url, audioPath, { postId, onProgress: options.onProgress ?? null });
-    }
-    return mainPath;
-  } finally {
+  let ownedDispatcher = options.dispatcher ? null : buildDispatcher(null, { timeoutMs });
+  let dispatcher = options.dispatcher ?? ownedDispatcher!;
+  const closeOwned = async (): Promise<void> => {
     if (ownedDispatcher) {
       try {
         await ownedDispatcher.close();
@@ -305,7 +306,42 @@ export async function downloadMedia(post: PostLike, targetDir: string, options: 
         // ignore dispatcher shutdown failures
       }
     }
+  };
+  try {
+    const attempt = async (): Promise<string> => {
+      const mainPath = resolveFreePath(target, stem, extensionOf(source, "jpg"));
+      await streamToFile(dispatcher, source.url, mainPath, { postId, onProgress: options.onProgress ?? null });
+      if (audio) {
+        const audioPath = resolveFreePath(target, `${stem}.audio`, extensionOf(audio, "mp3"));
+        await streamToFile(dispatcher, audio.url, audioPath, { postId, onProgress: options.onProgress ?? null });
+      }
+      return mainPath;
+    };
+    let mainPath: string;
+    try {
+      mainPath = await attempt();
+    } catch (error) {
+      // One retry with a fresh dispatcher for transient network failures (H2 resets,
+      // ECONNRESET, etc. — verified live against the media hosts). HTTP/404-style
+      // DownloadErrors are deterministic and are NOT retried.
+      if (options.dispatcher || !ownedDispatcher || !isTransientNetworkError(error)) throw error;
+      debugLog("retrying once with a fresh dispatcher", source.url, error);
+      await closeOwned();
+      ownedDispatcher = buildDispatcher(null, { timeoutMs });
+      dispatcher = ownedDispatcher;
+      mainPath = await attempt();
+    }
+    return mainPath;
+  } finally {
+    await closeOwned();
   }
+}
+
+/** True for transient transport failures worth one retry (not deterministic HTTP errors). */
+function isTransientNetworkError(error: unknown): boolean {
+  if (!(error instanceof DownloadError)) return false;
+  const text = `${error.message} ${String((error.cause as Error | undefined)?.message ?? "")}`;
+  return /terminated|econnreset|epipe|socket hang up|other side closed|und_err|fetch failed|http\/2/i.test(text);
 }
 
 /** Download many posts concurrently with a small worker pool; one result per post.
