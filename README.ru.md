@@ -145,6 +145,7 @@ client.like("https://scrolller.com/пост-abc123")
 
 `Claude Desktop → Settings → Developer → Edit Config` (файл `claude_desktop_config.json`):
 
+> Установил из исходников через `npm link`? Используй `"command": "scrolller-mcp"` (глобальная команда) вместо npx — и повторяй `npm run build` после обновлений.
 ```json
 {
   "mcpServers": {

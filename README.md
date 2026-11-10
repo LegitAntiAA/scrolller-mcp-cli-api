@@ -145,6 +145,7 @@ Everything the CLI can do is exposed as MCP **tools** (`scrolller-mcp`, stdio): 
 
 `Claude Desktop → Settings → Developer → Edit Config` (or `claude_desktop_config.json`):
 
+> Installed from source via `npm link`? Use `"command": "scrolller-mcp"` (global command) instead of npx — and re-run `npm run build` after updates.
 ```json
 {
   "mcpServers": {
