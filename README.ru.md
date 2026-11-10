@@ -50,7 +50,7 @@ npm install scrolller-core
 **Python ≥ 3.9** (библиотека):
 
 ```bash
-pip install "scrolller-py[socks]"
+pip install scrolller-py
 ```
 
 Из исходников:
@@ -135,7 +135,7 @@ client.like("https://scrolller.com/пост-abc123")
 
 ## MCP-сервер
 
-Всё, что умеет CLI, доступно как MCP-**инструменты** (`scrolller-mcp`, stdio): `discover`, `search_media`, `subreddit_feed`, `search_subreddits`, `get_post`, `read_comments`, `add_comment`, `reply_comment`, `like_comment`, `delete_comment`, `like_post`, `unlike_post`, `repost_post`, `unrepost_post`, `follow`, `unfollow`, `list_collections`, `get_collection`, `create_collection`, `add_to_collection`, `remove_from_collection`, `whoami`, `login`, `set_token`, `logout`, `get_notifications`, `mark_notifications`, `get_conversations`, `get_messages`, `send_message`, `get_user`, `resolve_link`, `get_related`, `hide_post`, `unhide_post`, `report_post`, `download_media`, `agent_subreddit`, `agent_content`, `agent_collection`, `configure_proxy`, `clear_proxy`, `get_config`, `update_config`.
+Всё, что умеет CLI, доступно как MCP-**инструменты** (`scrolller-mcp`, stdio): `discover`, `search_media`, `subreddit_feed`, `search_subreddits`, `get_post`, `read_comments`, `add_comment`, `reply_comment`, `like_comment`, `delete_comment`, `like_post`, `unlike_post`, `repost_post`, `unrepost_post`, `follow`, `unfollow`, `list_collections`, `get_collection`, `create_collection`, `add_to_collection`, `remove_from_collection`, `edit_collection`, `delete_collection`, `whoami`, `login`, `set_token`, `logout`, `get_notifications`, `mark_notifications`, `get_conversations`, `get_messages`, `send_message`, `get_user`, `resolve_link`, `get_related`, `hide_post`, `unhide_post`, `get_hide_rules`, `report_post`, `download_media`, `agent_subreddit`, `agent_content`, `agent_collection`, `configure_proxy`, `clear_proxy`, `get_config`, `update_config`.
 
 ### Claude Desktop
 
@@ -213,6 +213,8 @@ args = ["-y", "scrolller-mcp"]
 
 ## Примечания и ограничения
 
+- **Честная оговорка**: операции с авторизацией (лайки, комментарии, коллекции, сообщения и т.д.) реализованы по верифицированным GraphQL-шейпам сайта, но **не проверялись вживую с реальным аккаунтом** в процессе разработки — публичные (без токена) операции полностью проверены живьём.
+- У сайта в текущей веб-сборке **нет GraphQL для leaderboard / поиска коллекций / глобального поиска постов** (у страницы лидерборда нет публичного API), поэтому они не реализованы; поиск коллекций покрывает официальный роут `/agent/collection/{id}`.
 - `register`, сброс пароля и платежи на сервере **защищены капчей** — аккаунты создаёте на сайте, дальше `scrolller login`.
 - У `searchCollections` нет публичного GraphQL-документа в текущей сборке сайта (работает официальный роут `/agent/collection/{id}`).
 - Звук живёт внутри MP4/WEBM — отдельных аудиодорожек нет.

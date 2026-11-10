@@ -27,3 +27,6 @@ Thumbs.db
 # Local scratch (never commit)
 tmp/
 *.log
+
+# Internal agent work logs (kept locally, excluded from the public repo)
+docs/agent/

@@ -88,33 +88,33 @@ Legend: 🔓 public (no auth) · 🔒 requires token. CLI column = command; MCP 
 | # | Operation | core method | CLI | MCP | Auth | Status |
 | --- | --- | --- | --- | --- | --- | --- |
 | — | — *FILLED FROM T1 REPORT — operations below are provisional names pending SDL confirmation* | — | — | — | — | — |
-| 1 | Discover feed | `discover(opts)` | `scrolller discover` | `discover` | 🔓 | planned |
-| 2 | Search media | `search(query, opts)` | `scrolller search <q>` | `search_media` | 🔓 | planned |
-| 3 | Subreddit feed | `subredditFeed(name, opts)` | `scrolller subreddit <name>` | `subreddit_feed` | 🔓 | planned |
-| 4 | Subreddit autocomplete | `subredditSearch(q)` | `scrolller subreddit-search <q>` | `search_subreddits` | 🔓 | planned |
-| 5 | Post by URL/id | `getPost(ref)` | `scrolller post <url>` | `get_post` | 🔓 | planned |
+| 1 | Discover feed | `discover(opts)` | `scrolller discover` | `discover` | 🔓 | implemented |
+| 2 | Search subreddits (+WIT previews) [server has NO per-post media search] | `searchSubreddits(query, opts)` (searchSubredditWithPreview) | `scrolller search <q>` | `search_media` | 🔓 | implemented |
+| 3 | Subreddit feed | `subredditFeed(name, opts)` | `scrolller subreddit <name>` | `subreddit_feed` | 🔓 | implemented |
+| 4 | Subreddit autocomplete | `subredditSearch(q)` | `scrolller subreddit-search <q>` | `search_subreddits` | 🔓 | implemented |
+| 5 | Post by URL/id | `getPost(ref)` | `scrolller post <url>` | `get_post` | 🔓 | implemented |
 | 6 | Post comments [SDL-confirmed] | `getComments(ref, opts)` → `getComments(post_id, pagination{limit,cursor})`; replies via `getRepliesFromComment`; fields incl. `likes_count`, `replies_count`, `is_liked`, `user_account` | `scrolller comments <url>` | `read_comments` | 🔓 | confirmed |
 | 7 | Add comment [SDL-confirmed] | `addComment(ref, text)` → `createComment(content, post_id)`; replies `createCommentReply(content, parent_comment_id)`; also like/unlike/delete comment | `scrolller comment <url> <text>` (+ `comment-reply`, `comment-like`, `comment-delete`) | `add_comment` (+ `reply_comment`, `like_comment`, `delete_comment`) | 🔒 | confirmed |
 | 8 | Like / unlike [SDL-confirmed] | `like(ref)` / `unlike(ref)` → `addFavorite(url)` / `removeFavorite(url)` | `scrolller like/unlike <url>` | `like_post` / `unlike_post` | 🔒 | confirmed |
 | 9 | Repost / unrepost [SDL-confirmed] | `repost(ref)` / `unrepost(ref)` → `repostPost(url)` / `removeRepost(url)` | `scrolller repost/unrepost` | `repost_post` / `unrepost_post` | 🔒 | confirmed |
 | 10 | Follow subreddit/user [SDL-confirmed] | `follow(url)` / `unfollow(url)` (works for both `/r/...` and user URLs) | `scrolller follow/unfollow` | `follow` / `unfollow` | 🔒 | confirmed |
-| 11 | Collections list | `collections()` | `scrolller collection list` | `list_collections` | 🔒 | planned |
-| 12 | Collection by id | `collection(id)` | `scrolller collection get <id>` | `get_collection` | 🔒 | planned |
-| 13 | Create collection | `createCollection(name)` | `scrolller collection create <name>` | `create_collection` | 🔒 | planned |
-| 14 | Add/remove to collection | `collectionAdd/Remove(...)` | `scrolller collection add/remove` | `add_to_collection` / `remove_from_collection` | 🔒 | planned |
-| 15 | Logged-in user | `me()` | `scrolller whoami` | `whoami` | 🔒 | planned |
+| 11 | Collections list | `collections()` | `scrolller collection list` | `list_collections` | 🔒 | implemented |
+| 12 | Collection by id | `collection(id)` | `scrolller collection get <id>` | `get_collection` | 🔒 | implemented |
+| 13 | Create collection | `createCollection(name)` | `scrolller collection create <name>` | `create_collection` | 🔒 | implemented |
+| 14 | Add/remove to collection | `collectionAdd/Remove(...)` | `scrolller collection add/remove` | `add_to_collection` / `remove_from_collection` | 🔒 | implemented |
+| 15 | Logged-in user | `me()` | `scrolller whoami` | `whoami` | 🔒 | implemented |
 | 16a | Login with credentials [verified] | `login(username, password)` → `{token, expiresAt, username, isPremium}`; persists token+expiry to config | `scrolller login` (interactive prompts; `scrolller login <user> <pass>` for non-interactive) | `login` | 🔓 | verified-shape |
-| 16b | Set token manually | `setToken(token)` (persists) | `scrolller token <token>` | `set_token` | — | planned |
-| 16c | Logout (clear token from config) | `logout()` | `scrolller logout` | `logout` | — | planned |
-| 17 | Notifications | `notifications(opts)` | `scrolller notifications` | `get_notifications` | 🔒 | planned |
-| 18 | Messages | `conversations()`, `messages(conv)`, `sendMessage(conv, text)` | `scrolller messages ...` | `get_conversations` / `get_messages` / `send_message` | 🔒 | planned |
-| 19 | User profile & posts | `user(name)`, `userPosts(name)` | `scrolller user <name>` | `get_user` / `get_user_posts` | 🔓 | planned |
-| 20 | Resolve scrolller link | `resolve(url)` | `scrolller resolve <url>` | `resolve_link` | 🔓 | planned |
-| 21 | Hide rules / hide content | `hideRules()`, `hide(post)` | `scrolller hide ...` | `get_hide_rules` / `hide_post` | 🔒 | planned |
-| 22 | Download media | `download(post, dir)` | `scrolller download ...` | `download_media` | 🔓 | planned |
-| 23 | Proxy config | `setProxy(cfg)` | `scrolller proxy` (wizard) | `configure_proxy` / `clear_proxy` | — | planned |
-| 24 | Config get/set | `getConfig()`, `updateConfig(patch)` | `scrolller config get/set` | `get_config` / `update_config` | — | planned |
-| 25 | Leaderboard (top collections by likes) [UI-verified] | `leaderboard(opts)` | `scrolller leaderboard` | `get_leaderboard` | 🔓 | planned |
+| 16b | Set token manually | `setToken(token)` (persists) | `scrolller token <token>` | `set_token` | — | implemented |
+| 16c | Logout (clear token from config) | `logout()` | `scrolller logout` | `logout` | — | implemented |
+| 17 | Notifications | `notifications(opts)` | `scrolller notifications` | `get_notifications` | 🔒 | implemented |
+| 18 | Messages | `conversations()`, `messages(conv)`, `sendMessage(conv, text)` | `scrolller messages ...` | `get_conversations` / `get_messages` / `send_message` | 🔒 | implemented |
+| 19 | User posts | `getUserPosts(name)`, `getRedditUserPosts(name)` (no separate profile method; `whoami` for self) | `scrolller user <name>` | `get_user` / `get_user_posts` | 🔓 | implemented |
+| 20 | Resolve scrolller link | `resolve(url)` | `scrolller resolve <url>` | `resolve_link` | 🔓 | implemented |
+| 21 | Hide rules / hide content | `hideRules()`, `hide(post)` | `scrolller hide ...` | `get_hide_rules` / `hide_post` | 🔒 | implemented |
+| 22 | Download media | `download(post, dir)` | `scrolller download ...` | `download_media` | 🔓 | implemented |
+| 23 | Proxy config | `setProxy(cfg)` | `scrolller proxy` (wizard) | `configure_proxy` / `clear_proxy` | — | implemented |
+| 24 | Config get/set | `getConfig()`, `updateConfig(patch)` | `scrolller config get/set` | `get_config` / `update_config` | — | implemented |
+| 25 | ~~Leaderboard~~ | — | — | — | — | **NOT implementable**: page exists in UI but no GraphQL SDL in the web build (T1) — documented in README |
 | 26 | ~~Register account~~ | — | — | — | — | **NOT implementable**: `registerUser` requires reCAPTCHA v2 server-side (also forgetPassword, payments, phone/email verification). Documented in README; users register on the site, then `scrolller login`. |
 | 27 | Report post/comment/user [SDL-confirmed] | `report(ref, reason, details?)` → `reportPost(postId,...)` / `reportComment` / `reportUser` / `reportCollection` | `scrolller report <url>` | `report_post` | 🔒 | confirmed |
 | 28 | Related posts ("More like this") | `related(ref)` | `scrolller related <url>` | `get_related` | 🔓 | provisional (SDL from T1) |

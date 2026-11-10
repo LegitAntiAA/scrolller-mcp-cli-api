@@ -50,7 +50,7 @@ npm install scrolller-core
 **Python ≥ 3.9** (library):
 
 ```bash
-pip install "scrolller-py[socks]"
+pip install scrolller-py
 ```
 
 From source:
@@ -135,7 +135,7 @@ client.like("https://scrolller.com/some-post-abc123")
 
 ## MCP server
 
-Everything the CLI can do is exposed as MCP **tools** (`scrolller-mcp`, stdio): `discover`, `search_media`, `subreddit_feed`, `search_subreddits`, `get_post`, `read_comments`, `add_comment`, `reply_comment`, `like_comment`, `delete_comment`, `like_post`, `unlike_post`, `repost_post`, `unrepost_post`, `follow`, `unfollow`, `list_collections`, `get_collection`, `create_collection`, `add_to_collection`, `remove_from_collection`, `whoami`, `login`, `set_token`, `logout`, `get_notifications`, `mark_notifications`, `get_conversations`, `get_messages`, `send_message`, `get_user`, `resolve_link`, `get_related`, `hide_post`, `unhide_post`, `report_post`, `download_media`, `agent_subreddit`, `agent_content`, `agent_collection`, `configure_proxy`, `clear_proxy`, `get_config`, `update_config`.
+Everything the CLI can do is exposed as MCP **tools** (`scrolller-mcp`, stdio): `discover`, `search_media`, `subreddit_feed`, `search_subreddits`, `get_post`, `read_comments`, `add_comment`, `reply_comment`, `like_comment`, `delete_comment`, `like_post`, `unlike_post`, `repost_post`, `unrepost_post`, `follow`, `unfollow`, `list_collections`, `get_collection`, `create_collection`, `add_to_collection`, `remove_from_collection`, `edit_collection`, `delete_collection`, `whoami`, `login`, `set_token`, `logout`, `get_notifications`, `mark_notifications`, `get_conversations`, `get_messages`, `send_message`, `get_user`, `resolve_link`, `get_related`, `hide_post`, `unhide_post`, `get_hide_rules`, `report_post`, `download_media`, `agent_subreddit`, `agent_content`, `agent_collection`, `configure_proxy`, `clear_proxy`, `get_config`, `update_config`.
 
 ### Claude Desktop
 
@@ -213,6 +213,8 @@ Precedence: explicit option → env → config file → defaults. The token is s
 
 ## Notes & limits
 
+- **Honest caveat**: authenticated operations (likes, comments, collections, messages, …) are implemented from the site's verified GraphQL shapes but were **not live-tested with a real account** during development — public (no-auth) operations are fully live-verified.
+- The site has **no leaderboard / search-collections / global post-search GraphQL** in its current web build (the UI leaderboard page has no public API), so those are not implemented; the official `/agent/collection/{id}` route covers collection lookup.
 - `register`, password reset and payments are **captcha-protected** on the server — create accounts on the site, then `scrolller login`.
 - `searchCollections` has no public GraphQL document in the current web build (official `/agent/collection/{id}` route works).
 - Audio lives inside MP4/WEBM — no separate audio streams exist.

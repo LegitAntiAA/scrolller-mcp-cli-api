@@ -15,7 +15,7 @@ Thanks for your interest! Quick rules to keep this maintainable:
 ```bash
 git clone <repo> && cd scrolller-mcp-cli-api
 npm ci && npm run build       # Node workspaces (core, cli, mcp)
-npm test --workspaces         # unit tests (node:test)
+npm test --workspaces --if-present    # unit tests (node:test)
 npm run smoke -w scrolller-core   # live API smoke
 
 cd python && pip install -e ".[dev]"
