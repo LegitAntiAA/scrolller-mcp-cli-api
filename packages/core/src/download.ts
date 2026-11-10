@@ -26,6 +26,7 @@ import { fetch as undiciFetch } from "undici";
 import type { Dispatcher, Response as UndiciResponse } from "undici";
 import { DownloadError, errorMessage, NotFoundError } from "./errors.js";
 import { buildDispatcher } from "./proxy.js";
+import { DEFAULT_USER_AGENT } from "./transport.js";
 import { DEFAULT_TIMEOUT_MS, type DownloadProgress, type DownloadResult, type PostLike } from "./types.js";
 
 const URL_DIMENSIONS = /(\d{1,5})x(\d{1,5})/g;
@@ -59,6 +60,11 @@ export interface DownloadMediaOptions {
   /** Dispatcher (proxy-aware) shared with the client; a plain one is built and closed when absent. */
   dispatcher?: Dispatcher | null;
   timeoutMs?: number | null;
+  /** User-Agent for media requests; defaults to the bundled browser UA (media hosts drop
+   * undici's default UA mid-body — verified live, Cloudflare closes those connections). */
+  userAgent?: string | null;
+  /** Extra headers on media requests (client parity). */
+  extraHeaders?: Record<string, string> | null;
 }
 
 export interface DownloadToDirOptions extends DownloadMediaOptions {
@@ -225,15 +231,27 @@ function debugLog(what: string, url: string, error: unknown): void {
   console.error(`[scrolller-core:download] ${what} ${url}\n${err?.stack ?? String(error)}`);
 }
 
+/** Media requests must look like the web client: a browser UA + site referer.
+ * Without them the media hosts' edge closes connections mid-body ("terminated"). */
+function mediaHeaders(userAgent?: string | null, extraHeaders?: Record<string, string> | null): Record<string, string> {
+  return {
+    accept: "*/*",
+    "accept-language": "en-US,en;q=0.9",
+    referer: "https://scrolller.com/",
+    "user-agent": userAgent || DEFAULT_USER_AGENT,
+    ...extraHeaders,
+  };
+}
+
 async function streamToFile(
   dispatcher: Dispatcher,
   url: string,
   filePath: string,
-  opts: { postId: string; onProgress: ProgressCallback | null },
+  opts: { postId: string; onProgress: ProgressCallback | null; headers: Record<string, string> },
 ): Promise<void> {
   let response: UndiciResponse;
   try {
-    response = await undiciFetch(url, { dispatcher, redirect: "follow" });
+    response = await undiciFetch(url, { dispatcher, redirect: "follow", headers: opts.headers });
   } catch (error) {
     debugLog("fetch failed", url, error);
     throw new DownloadError(`download failed for ${url}: ${errorMessage(error)}`, { cause: error });
@@ -309,11 +327,12 @@ export async function downloadMedia(post: PostLike, targetDir: string, options: 
   };
   try {
     const attempt = async (): Promise<string> => {
+      const headers = mediaHeaders(options.userAgent, options.extraHeaders);
       const mainPath = resolveFreePath(target, stem, extensionOf(source, "jpg"));
-      await streamToFile(dispatcher, source.url, mainPath, { postId, onProgress: options.onProgress ?? null });
+      await streamToFile(dispatcher, source.url, mainPath, { postId, onProgress: options.onProgress ?? null, headers });
       if (audio) {
         const audioPath = resolveFreePath(target, `${stem}.audio`, extensionOf(audio, "mp3"));
-        await streamToFile(dispatcher, audio.url, audioPath, { postId, onProgress: options.onProgress ?? null });
+        await streamToFile(dispatcher, audio.url, audioPath, { postId, onProgress: options.onProgress ?? null, headers });
       }
       return mainPath;
     };
