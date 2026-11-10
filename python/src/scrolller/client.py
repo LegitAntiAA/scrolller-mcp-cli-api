@@ -105,19 +105,29 @@ class ScrolllerClient:
         self._transport.set_proxy(config)
         _persist_config_value(self._options, "proxy", config.to_dict() if config is not None else None)
 
+    def close(self) -> None:
+        """Release the underlying HTTP connection pool."""
+        self._transport.close()
+
+    def __enter__(self) -> "ScrolllerClient":
+        return self
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self.close()
+
     def download(
         self,
         post: Dict[str, Any],
         dir: Optional[Union[str, Path]] = None,
         *,
-        on_progress: Optional[ProgressCallback] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> Path:
         """Download a post's best media source; return the saved path."""
         target = dir if dir is not None else self._options.download_dir
         if not target:
             raise DownloadError("no download directory given (pass dir or set download_dir)")
         return download_media(
-            post, target, on_progress=on_progress, client=self._transport.http_client
+            post, target, progress_callback=progress_callback, client=self._transport.http_client
         )
 
 
@@ -193,21 +203,31 @@ class AsyncScrolllerClient:
         self._transport.set_proxy(config)
         _persist_config_value(self._options, "proxy", config.to_dict() if config is not None else None)
 
+    async def aclose(self) -> None:
+        """Release the underlying HTTP connection pools."""
+        await self._transport.aclose()
+
+    async def __aenter__(self) -> "AsyncScrolllerClient":
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        await self.aclose()
+
     async def download(
         self,
         post: Dict[str, Any],
         dir: Optional[Union[str, Path]] = None,
         *,
-        on_progress: Optional[ProgressCallback] = None,
+        progress_callback: Optional[ProgressCallback] = None,
     ) -> Path:
         """Download a post's best media source; return the saved path.
 
-        ``on_progress`` fires from the worker thread.
+        ``progress_callback`` fires from the worker thread.
         """
         target = dir if dir is not None else self._options.download_dir
         if not target:
             raise DownloadError("no download directory given (pass dir or set download_dir)")
         client = self._transport.download_http_client
         return await asyncio.to_thread(
-            download_media, post, target, on_progress=on_progress, client=client
+            download_media, post, target, progress_callback=progress_callback, client=client
         )

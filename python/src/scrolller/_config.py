@@ -7,10 +7,15 @@ Windows, ``~/.config/scrolller/config.json`` otherwise (XDG respected).
 Environment variables: SCROLLLER_TOKEN, SCROLLLER_NSFW, SCROLLLER_USER_AGENT,
 SCROLLLER_EXTRA_HEADERS (JSON), SCROLLLER_PROXY (``type://[user:pass@]host:port``),
 SCROLLLER_DOWNLOAD_DIR.
+
+NOTE: the config file stores the auth token (and proxy password) in
+PLAINTEXT. On POSIX the file is written with 0600 permissions; on Windows
+normal ACLs apply (not managed here).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -85,12 +90,23 @@ def load_config_file(path: Union[str, os.PathLike]) -> Dict[str, Any]:
 
 
 def save_config_file(path: Union[str, os.PathLike], data: Mapping[str, Any]) -> None:
-    """Atomically write config JSON (parent directories created)."""
+    """Atomically write config JSON (parent directories created).
+
+    The file may hold the token/proxy password in plaintext, so on POSIX it
+    is written with 0600 permissions (temp file included). Windows ACLs are
+    left to the user.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    if os.name != "nt":
+        with contextlib.suppress(OSError):
+            os.chmod(tmp, 0o600)
     os.replace(tmp, path)
+    if os.name != "nt":
+        with contextlib.suppress(OSError):
+            os.chmod(path, 0o600)
 
 
 def parse_extra_headers(raw: str) -> Dict[str, str]:
@@ -215,7 +231,9 @@ def build_client_options(
         extra_headers=_coerce_headers(pick(extra_headers, "extra_headers")),
         proxy=as_proxy_config(pick(proxy, "proxy")),
         timeout_ms=_coerce_int("timeout_ms", pick(timeout_ms, "timeout_ms"), DEFAULT_TIMEOUT_MS),
-        base_url=base_url if base_url is not None else (cfg.get("base_url") or DEFAULT_BASE_URL),
+        # base_url is a constructor option only — deliberately not read from the
+        # config file schema (CONTRACT.md §3).
+        base_url=base_url if base_url is not None else DEFAULT_BASE_URL,
         download_dir=pick(download_dir, "download_dir"),
         read_retries=_coerce_int("read_retries", pick(read_retries, "read_retries"), DEFAULT_READ_RETRIES),
         config_path=str(resolved_path),

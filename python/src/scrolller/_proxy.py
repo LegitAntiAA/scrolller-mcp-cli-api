@@ -49,7 +49,10 @@ def httpx_proxy_url(config: ProxyConfig) -> str:
         if config.password is not None:
             auth += ":" + urllib.parse.quote(config.password, safe="")
         auth += "@"
-    return f"{config.type.value}://{auth}{config.host}:{config.port}"
+    host = config.host
+    if ":" in host:  # IPv6 literal must be bracketed in the URL
+        host = f"[{host}]"
+    return f"{config.type.value}://{auth}{host}:{config.port}"
 
 
 def as_proxy_config(value: Any) -> Optional[ProxyConfig]:

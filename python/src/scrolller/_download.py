@@ -1,15 +1,20 @@
 """Media downloads (CONTRACT.md §7).
 
-- Source choice: videos prefer ``fullLengthSource``; otherwise the largest
-  ``mediaSources`` entry by width*height (list is small->large per RESEARCH.md §4).
-- Filename: ``<postId>-<slug or subreddit>-<WxH>.<ext>``; collisions get a
-  numeric suffix; existing files are never overwritten.
-- Progress via an ``on_progress(DownloadProgress)`` callback.
-- An audio sidecar is saved next to the media file as ``<name>.audio.<ext>``
-  when the API exposes an audio source. NOTE: the query verified in
-  RESEARCH.md does not surface an audio URL field, so sidecars are driven by
-  an ``audioSource`` entry on the post when the server includes one; the
-  ffmpeg merge step belongs to the operation-methods phase.
+- Source choice: ONLY post-level ``mediaSources[]`` entries are media files —
+  videos are the MP4/WEBM entries (largest area wins), images the largest
+  entry overall. ``fullLengthSource``/``gfycatSource``/``redgifsSource`` are
+  reference PAGE URLs (gfycat/redgifs web pages — T1-RESEARCH-FULL.md §3/§5),
+  never media, and are ignored here. The literal string ``"undefined"``
+  (backend artifact, RESEARCH.md §4) is treated as absent everywhere.
+- Filename: ``<postId>-<slug or subreddit>-<WxH>.<ext>``; the file is created
+  with an exclusive open (``O_CREAT|O_EXCL``) so concurrent downloads never
+  overwrite each other; collisions get a numeric suffix. Existing files are
+  never overwritten.
+- Progress via a ``progress_callback(DownloadProgress)`` callback; a raising
+  callback still triggers partial-file cleanup.
+- An audio sidecar ``<name>.audio.<ext>`` is saved when the API exposes an
+  audio source. Currently none does (audio lives inside the mp4/webm —
+  T1-RESEARCH-FULL.md §5), so the path is dormant but implemented per §7.
 """
 
 from __future__ import annotations
@@ -30,6 +35,8 @@ _CHUNK_SIZE = 64 * 1024
 _URL_DIMENSIONS = re.compile(r"(\d{1,5})x(\d{1,5})")
 _FILENAME_INVALID = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _WHITESPACE = re.compile(r"\s+")
+
+_VIDEO_TYPES = {"MP4", "WEBM"}
 
 _TYPE_EXT = {
     "WEBP": "webp",
@@ -58,16 +65,27 @@ def _as_source(value: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _area(source: Dict[str, Any]) -> int:
+    """width*height; missing or non-numeric values count as 0."""
+
+    def dim(value: Any) -> int:
+        try:
+            return int(value) if value is not None else 0
+        except (TypeError, ValueError):
+            return 0
+
+    return dim(source.get("width")) * dim(source.get("height"))
+
+
 def best_media_source(post: Dict[str, Any]) -> Dict[str, Any]:
     """Pick the download source for a post (CONTRACT.md §7).
 
-    Videos prefer ``fullLengthSource`` (the literal string ``"undefined"`` is
-    ignored); otherwise the largest ``mediaSources`` entry by area — which
-    per RESEARCH.md §4 includes MP4/WEBM video entries directly.
+    Only post-level ``mediaSources[]`` entries are media files: for videos
+    the MP4/WEBM entries (largest area wins), for images the largest entry
+    overall. ``fullLengthSource``/``gfycatSource``/``redgifsSource`` are
+    reference page URLs (gfycat/redgifs web pages — T1-RESEARCH-FULL.md
+    §3/§5), never media, and are ignored here.
     """
-    source = _as_source(post.get("fullLengthSource"))
-    if source is not None:
-        return source
     candidates = []
     for raw in post.get("mediaSources") or []:
         normalized = _as_source(raw)
@@ -75,13 +93,19 @@ def best_media_source(post: Dict[str, Any]) -> Dict[str, Any]:
             candidates.append(normalized)
     if not candidates:
         raise DownloadError("post has no usable media sources")
-    return max(
-        candidates,
-        key=lambda s: int(s.get("width") or 0) * int(s.get("height") or 0),
-    )
+    video_entries = [
+        source for source in candidates if str(source.get("type") or "").upper() in _VIDEO_TYPES
+    ]
+    return max(video_entries or candidates, key=_area)
 
 
 def _audio_source(post: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Audio sidecar source, when the API exposes one.
+
+    T1-RESEARCH-FULL.md §5 verified there is NO separate audio URL (audio
+    lives inside the mp4/webm file); this path only triggers if a future
+    field like ``audioSource`` appears, keeping CONTRACT.md §7 implemented.
+    """
     return _as_source(post.get("audioSource"))
 
 
@@ -121,73 +145,91 @@ def _slug(post: Dict[str, Any]) -> str:
     return cleaned[:80] or "post"
 
 
-def _resolve_path(target_dir: Path, stem: str, ext: str) -> Path:
-    """First non-existing ``<stem>.<ext>``, ``<stem>-1.<ext>``, ... (no overwrite)."""
+def _open_exclusive(target_dir: Path, stem: str, ext: str) -> Tuple[Path, Any]:
+    """Open ``<stem>.<ext>`` (then ``<stem>-1.<ext>``, ...) with ``O_CREAT|O_EXCL``.
+
+    Exclusive creation closes the pick-then-write race: two concurrent
+    downloads can never end up writing the same file.
+    """
     candidate = target_dir / f"{stem}.{ext}"
     index = 1
-    while candidate.exists():
-        candidate = target_dir / f"{stem}-{index}.{ext}"
-        index += 1
-    return candidate
+    while True:
+        try:
+            return candidate, candidate.open("xb")
+        except FileExistsError:
+            candidate = target_dir / f"{stem}-{index}.{ext}"
+            index += 1
 
 
 def _stream_to_file(
     client: httpx.Client,
     url: str,
-    path: Path,
+    target_dir: Path,
+    stem: str,
+    ext: str,
     *,
     post_id: str,
-    on_progress: Optional[ProgressCallback],
-) -> None:
-    """Stream ``url`` to ``path``, emitting DownloadProgress events."""
+    progress_callback: Optional[ProgressCallback],
+) -> Path:
+    """Download ``url`` into a uniquely created file in ``target_dir``.
+
+    Requires a 2xx response (3xx must be resolved by ``follow_redirects``).
+    Any failure — including a raising ``progress_callback`` — removes the
+    partial file before the exception propagates.
+    """
+    path: Optional[Path] = None
     try:
-        with client.stream("GET", url) as response:
-            if response.status_code == 404:
-                raise NotFoundError(f"media not found (HTTP 404): {url}")
-            if response.status_code >= 400:
-                raise DownloadError(f"HTTP {response.status_code} fetching {url}")
-            length_header = response.headers.get("content-length")
-            total = int(length_header) if length_header and length_header.isdigit() else None
-            done = 0
-            with path.open("wb") as fh:
-                for chunk in response.iter_bytes(chunk_size=_CHUNK_SIZE):
-                    fh.write(chunk)
-                    done += len(chunk)
-                    if on_progress is not None:
-                        on_progress(
-                            DownloadProgress(
-                                post_id=post_id,
-                                url=url,
-                                bytes_done=done,
-                                bytes_total=total,
-                                path=str(path),
-                                done=False,
+        try:
+            path, fh = _open_exclusive(target_dir, stem, ext)
+            try:
+                with client.stream("GET", url) as response:
+                    if response.status_code == 404:
+                        raise NotFoundError(f"media not found (HTTP 404): {url}")
+                    if not 200 <= response.status_code < 300:
+                        raise DownloadError(f"HTTP {response.status_code} fetching {url}")
+                    length_header = response.headers.get("content-length")
+                    total = (
+                        int(length_header) if length_header and length_header.isdigit() else None
+                    )
+                    done = 0
+                    for chunk in response.iter_bytes(chunk_size=_CHUNK_SIZE):
+                        fh.write(chunk)
+                        done += len(chunk)
+                        if progress_callback is not None:
+                            progress_callback(
+                                DownloadProgress(
+                                    post_id=post_id,
+                                    url=url,
+                                    bytes_done=done,
+                                    bytes_total=total,
+                                    path=str(path),
+                                    done=False,
+                                )
                             )
-                        )
-        if on_progress is not None:
-            on_progress(
-                DownloadProgress(
-                    post_id=post_id,
-                    url=url,
-                    bytes_done=done,
-                    bytes_total=total,
-                    path=str(path),
-                    done=True,
+            finally:
+                fh.close()
+            if progress_callback is not None:
+                progress_callback(
+                    DownloadProgress(
+                        post_id=post_id,
+                        url=url,
+                        bytes_done=done,
+                        bytes_total=total,
+                        path=str(path),
+                        done=True,
+                    )
                 )
-            )
-    except (NotFoundError, DownloadError):
-        # Never leave a partial file behind.
-        with contextlib.suppress(OSError):
-            path.unlink(missing_ok=True)
+            return path
+        except httpx.HTTPError as exc:
+            raise DownloadError(f"download failed for {url}: {exc}") from exc
+        except OSError as exc:
+            raise DownloadError(f"cannot write into {target_dir}: {exc}") from exc
+    except BaseException:
+        # Never leave a partial file behind — also covers callback exceptions.
+        if path is not None:
+            with contextlib.suppress(OSError):
+                path.unlink(missing_ok=True)
         raise
-    except httpx.HTTPError as exc:
-        with contextlib.suppress(OSError):
-            path.unlink(missing_ok=True)
-        raise DownloadError(f"download failed for {url}: {exc}") from exc
-    except OSError as exc:
-        with contextlib.suppress(OSError):
-            path.unlink(missing_ok=True)
-        raise DownloadError(f"cannot write {path}: {exc}") from exc
 
 
 def _post_id(post: Dict[str, Any]) -> str:
@@ -198,7 +240,7 @@ def download_media(
     post: Dict[str, Any],
     target_dir: Union[str, "os.PathLike[str]"],
     *,
-    on_progress: Optional[ProgressCallback] = None,
+    progress_callback: Optional[ProgressCallback] = None,
     client: Optional[httpx.Client] = None,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
 ) -> Path:
@@ -229,15 +271,29 @@ def download_media(
     except OSError as exc:
         raise DownloadError(f"cannot create download directory {target}: {exc}") from exc
 
-    main_path = _resolve_path(target, stem, _extension(source, "jpg"))
     owned_client = client is None
     if owned_client:
         client = httpx.Client(timeout=httpx.Timeout(timeout_ms / 1000.0), follow_redirects=True)
     try:
-        _stream_to_file(client, str(source["url"]), main_path, post_id=post_id, on_progress=on_progress)
+        main_path = _stream_to_file(
+            client,
+            str(source["url"]),
+            target,
+            stem,
+            _extension(source, "jpg"),
+            post_id=post_id,
+            progress_callback=progress_callback,
+        )
         if audio is not None:
-            audio_path = _resolve_path(target, f"{stem}.audio", _extension(audio, "mp3"))
-            _stream_to_file(client, str(audio["url"]), audio_path, post_id=post_id, on_progress=on_progress)
+            _stream_to_file(
+                client,
+                str(audio["url"]),
+                target,
+                f"{stem}.audio",
+                _extension(audio, "mp3"),
+                post_id=post_id,
+                progress_callback=progress_callback,
+            )
     finally:
         if owned_client:
             client.close()
@@ -249,13 +305,13 @@ def download_many(
     target_dir: Union[str, "os.PathLike[str]"],
     *,
     concurrency: int = 4,
-    on_progress: Optional[ProgressCallback] = None,
+    progress_callback: Optional[ProgressCallback] = None,
     client: Optional[httpx.Client] = None,
     timeout_ms: int = DEFAULT_TIMEOUT_MS,
 ) -> List[DownloadResult]:
     """Download many posts concurrently (thread pool); one result per post.
 
-    ``on_progress`` fires from worker threads and must be thread-safe.
+    ``progress_callback`` fires from worker threads and must be thread-safe.
     Failures are reported per item (``DownloadResult.error``), never lost.
     """
     posts = list(posts)
@@ -268,7 +324,7 @@ def download_many(
                 download_media,
                 post,
                 target_dir,
-                on_progress=on_progress,
+                progress_callback=progress_callback,
                 client=client,
                 timeout_ms=timeout_ms,
             ): index

@@ -112,9 +112,9 @@ def test_env_overrides(monkeypatch):
     assert cfg["download_dir"] == "D:/dl"
 
 
-def test_env_empty_token_ignored(monkeypatch):
-    monkeypatch.setenv("SCROLLLER_TOKEN", "   ")
-    cfg = apply_env_overrides(dict(DEFAULT_CONFIG), environ={})
+def test_env_empty_token_ignored():
+    # Whitespace-only token must be treated as unset (F12: exercise the path).
+    cfg = apply_env_overrides(dict(DEFAULT_CONFIG), environ={"SCROLLLER_TOKEN": "   "})
     assert cfg["token"] is None
 
 
@@ -188,6 +188,18 @@ def test_build_client_options_coercions(tmp_path):
     assert options.read_retries == 1
 
 
+def test_base_url_not_read_from_config_file(tmp_path):
+    # F14: base_url is a constructor option only, never loaded from the file.
+    cfg_path = tmp_path / "config.json"
+    save_config_file(cfg_path, {"base_url": "https://attacker.example/admin"})
+    options = build_client_options(config_path=str(cfg_path), environ={})
+    assert options.base_url == "https://api.scrolller.com/admin"
+    explicit = build_client_options(
+        config_path=str(cfg_path), environ={}, base_url="https://custom.example/admin"
+    )
+    assert explicit.base_url == "https://custom.example/admin"
+
+
 # -------------------------------------------------------------- proxy URLs
 
 
@@ -223,6 +235,17 @@ def test_httpx_proxy_url_auth_quoting():
     assert (
         httpx_proxy_url(ProxyConfig(type="http", host="h", port=8080, username="u", password="p:1"))
         == "http://u:p%3A1@h:8080"
+    )
+
+
+def test_httpx_proxy_url_ipv6_bracketed():
+    # F20: IPv6 literals must be bracketed in the URL.
+    assert httpx_proxy_url(ProxyConfig(type="socks5", host="::1", port=1080)) == "socks5://[::1]:1080"
+    assert (
+        httpx_proxy_url(
+            ProxyConfig(type="http", host="2001:db8::1", port=8080, username="u", password="p")
+        )
+        == "http://u:p@[2001:db8::1]:8080"
     )
 
 

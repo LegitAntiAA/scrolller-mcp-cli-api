@@ -47,14 +47,31 @@ def _build_client(
 ) -> Any:
     """Create an httpx client with proxy + timeout applied (CONTRACT.md §4)."""
     proxy_url = httpx_proxy_url(proxy) if proxy is not None else None
-    kwargs: Dict[str, Any] = {"timeout": httpx.Timeout(timeout_ms / 1000.0)}
+    kwargs: Dict[str, Any] = {
+        "timeout": httpx.Timeout(timeout_ms / 1000.0),
+        "follow_redirects": True,  # media hosts may redirect; never save a 3xx body
+    }
     if proxy_url is not None:
         kwargs["proxy"] = proxy_url
     cls = httpx.AsyncClient if async_client else httpx.Client
     try:
         return cls(**kwargs)
     except ImportError as exc:  # socks:// URL without the httpx[socks] extra
+        # httpx's message does not embed the proxy URL — safe to forward.
         raise ProxyError(f"SOCKS proxy requires the httpx[socks] extra: {exc}") from exc
+    except ValueError as exc:
+        # httpx rejects unsupported schemes (e.g. socks4) with a bare ValueError
+        # whose text embeds the full proxy URL, including credentials — raise a
+        # credential-free message instead.
+        scheme = proxy.type.value if proxy is not None else None
+        if scheme is not None:
+            message = (
+                f"Unsupported proxy scheme {scheme!r} — Python client supports "
+                "http/https/socks5 (use the Node.js client for socks4)"
+            )
+        else:
+            message = "cannot initialize proxy (httpx rejected the proxy configuration)"
+        raise ProxyError(message) from exc
     except httpx.HTTPError as exc:
         raise ProxyError(f"cannot initialize proxy: {exc}") from exc
 
@@ -74,9 +91,20 @@ def _request_headers(
 
 
 def _build_payload(query: str, variables: Any, token: Optional[str]) -> bytes:
+    """Build the POST body; the token is a body field (RESEARCH.md §1).
+
+    Nullable variables are sent by OMITTING them: explicit nulls for e.g.
+    $filter/$excludeFilters/$includeFilters make the server answer
+    INTERNAL_SERVER_ERROR (verified live; T1-RESEARCH-FULL.md §7). Omission
+    is equivalent for every documented nullable variable, including
+    $iterator (first page).
+    """
+    clean_variables = {
+        key: value for key, value in (variables or {}).items() if value is not None
+    }
     payload = {
         "query": query,
-        "variables": variables if variables is not None else {},
+        "variables": clean_variables,
         "authorization": token,
     }
     return json.dumps(payload).encode("utf-8")
@@ -170,6 +198,10 @@ class Transport:
         self.read_retries = read_retries
         self.http_client = _build_client(proxy=proxy, timeout_ms=timeout_ms)
 
+    def close(self) -> None:
+        """Close the underlying HTTP client (releases the connection pool)."""
+        self.http_client.close()
+
     def set_proxy(self, proxy: Optional[ProxyConfig]) -> None:
         """Swap the live proxy (rebuilds the underlying http client)."""
         self.proxy = proxy
@@ -240,6 +272,13 @@ class AsyncTransport:
         if self._download_client is None:
             self._download_client = _build_client(proxy=self.proxy, timeout_ms=self.timeout_ms)
         return self._download_client
+
+    async def aclose(self) -> None:
+        """Close the async API client and the lazily-created download client."""
+        await self.http_client.aclose()
+        if self._download_client is not None:
+            self._download_client.close()
+            self._download_client = None
 
     def set_proxy(self, proxy: Optional[ProxyConfig]) -> None:
         """Swap the live proxy (rebuilds the underlying async http client)."""

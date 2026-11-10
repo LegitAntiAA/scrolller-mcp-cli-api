@@ -1,4 +1,6 @@
-"""Unit tests for the error hierarchy and transport error mapping (no network)."""
+"""Unit tests for the error hierarchy, transport error mapping and payload building (no network)."""
+
+import json
 
 import pytest
 
@@ -15,8 +17,13 @@ from scrolller._errors import (
     ScrolllerAuthRequiredError,
     ScrolllerError,
 )
-from scrolller._transport import _interpret_response, _raise_for_graphql_errors
-from scrolller._types import ErrorKind
+from scrolller._transport import (
+    _build_client,
+    _build_payload,
+    _interpret_response,
+    _raise_for_graphql_errors,
+)
+from scrolller._types import ErrorKind, ProxyConfig
 
 
 class _FakeResponse:
@@ -160,3 +167,52 @@ def test_other_internal_server_error_stays_graphql_error():
     errors = [{"message": "something else broke", "extensions": {"code": "INTERNAL_SERVER_ERROR"}}]
     with pytest.raises(GraphQLError):
         _raise_for_graphql_errors(errors, http_status=200)
+
+
+# ------------------------------------------------ F2: null variables omitted
+
+
+def test_payload_omits_null_variables():
+    payload = json.loads(
+        _build_payload(
+            "query DiscoverFilteredSubredditsQuery { x }",
+            {
+                "filter": None,
+                "iterator": None,
+                "excludeFilters": None,
+                "limit": 2,
+                "nsfw": "SFW",
+                "includeFilters": [],
+            },
+            None,
+        )
+    )
+    assert payload["variables"] == {"limit": 2, "nsfw": "SFW", "includeFilters": []}
+    assert payload["authorization"] is None
+
+
+def test_payload_keeps_non_null_values_and_token():
+    payload = json.loads(_build_payload("q", {"iterator": "7", "limit": 1}, "tok"))
+    assert payload["variables"] == {"iterator": "7", "limit": 1}
+    assert payload["authorization"] == "tok"
+
+
+def test_payload_none_variables_become_empty_object():
+    payload = json.loads(_build_payload("q", None, None))
+    assert payload["variables"] == {}
+    assert payload["query"] == "q"
+
+
+# --------------------------------- F3: unsupported proxy scheme, no cred leak
+
+
+def test_socks4_proxy_raises_proxy_error_without_credentials():
+    config = ProxyConfig(
+        type="socks4", host="127.0.0.1", port=1080, username="alice", password="hunter2"
+    )
+    with pytest.raises(ProxyError) as excinfo:
+        _build_client(proxy=config, timeout_ms=30000)
+    message = str(excinfo.value)
+    assert "hunter2" not in message  # the password must never appear
+    assert "socks4" in message
+    assert excinfo.value.kind == ErrorKind.PROXY_ERROR
